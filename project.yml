@@ -1,0 +1,75 @@
+name: CookieJar
+options:
+  bundleIdPrefix: com.kakenhi
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    # 只接受 4 / 4.2 / 5 / 6，写具体小版本号会被拒绝
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "19"
+    ENABLE_BITCODE: NO
+    CODE_SIGN_IDENTITY: ""
+    CODE_SIGNING_REQUIRED: NO
+    CODE_SIGNING_ALLOWED: NO
+    CODE_SIGN_ENTITLEMENTS: ""
+    DEVELOPMENT_TEAM: ""
+    SWIFT_STRICT_CONCURRENCY: minimal
+    OTHER_LDFLAGS: "$(inherited)"
+
+targets:
+  CookieJar:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: Resources/Assets.xcassets
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_NAME: CookieJar
+        PRODUCT_BUNDLE_IDENTIFIER: com.kakenhi.cookieJar
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        TARGETED_DEVICE_FAMILY: "1,2"
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: NO
+        GENERATE_INFOPLIST_FILE: NO
+        SUPPORTS_MACCATALYST: NO
+        SWIFT_OBJC_BRIDGING_HEADER: ""
+    info:
+      path: Resources/Info.plist
+      properties:
+        CFBundleDisplayName: CookieJar
+        CFBundleName: CookieJar
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        LSRequiresIPhoneOS: true
+        UILaunchScreen:
+          UIColorName: ""
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIUserInterfaceStyle: Automatic
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        ITSAppUsesNonExemptEncryption: false
+        NSCameraUsageDescription: 扫描饼干二维码需要使用相机。
+        NSPhotoLibraryAddUsageDescription: 保存图片到相册需要相册权限。
+        NSPhotoLibraryUsageDescription: 发串时选择图片需要访问相册。
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        CFBundleURLTypes:
+          - CFBundleURLName: com.kakenhi.cookieJar
+            CFBundleURLSchemes:
+              - cookiejar

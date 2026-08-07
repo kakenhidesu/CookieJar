@@ -1,0 +1,13 @@
+# Xcode / build
+*.xcodeproj/
+*.xcworkspace/
+build/
+DerivedData/
+*.ipa
+Payload/
+xcodebuild.log
+
+# macOS / editors
+.DS_Store
+*.swp
+.vscode/
