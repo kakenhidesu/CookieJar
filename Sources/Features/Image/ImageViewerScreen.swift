@@ -74,7 +74,7 @@ struct ImageViewerScreen: View {
 
     private func save() async {
         guard let url = payload.images[safe: index] else { return }
-        guard let data = await ImageCache.shared.rawData(for: url), let img = UIImage(data: data) else {
+        guard let data = await ImageCache.shared.rawData(for: url) else {
             Toast.shared.error("图片还没加载完")
             return
         }
@@ -85,8 +85,14 @@ struct ImageViewerScreen: View {
             Toast.shared.error("没有相册权限")
             return
         }
-        UIImageWriteToSavedPhotosAlbum(img, nil, nil, nil)
-        Toast.shared.success("已保存到相册")
+        do {
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetCreationRequest.forAsset().addResource(with: .photo, data: data, options: nil)
+            }
+            Toast.shared.success("已保存到相册")
+        } catch {
+            Toast.shared.error("保存失败")
+        }
     }
 }
 
@@ -101,9 +107,7 @@ struct ZoomableImage: View {
 
     var body: some View {
         GeometryReader { geo in
-            XDAsyncImage(url: url, contentMode: .fit) {
-                AnyView(Color.black)
-            }
+            content
             .frame(width: geo.size.width, height: geo.size.height)
             .scaleEffect(scale)
             .offset(offset)
@@ -141,6 +145,21 @@ struct ZoomableImage: View {
                 }
             }
             .onTapGesture { onSingleTap() }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if GIF.isGIF(url: url) {
+            XDGIFImage(primary: url,
+                       contentMode: .fit,
+                       maxPixel: 1024,
+                       budgetBytes: 32 * 1024 * 1024,
+                       placeholder: Color.black)
+        } else {
+            XDAsyncImage(url: url, contentMode: .fit) {
+                AnyView(Color.black)
+            }
         }
     }
 }

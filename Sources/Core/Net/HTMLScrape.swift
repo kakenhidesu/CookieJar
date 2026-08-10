@@ -114,10 +114,12 @@ enum HTMLScrape {
         let content = capture("h-threads-content\"[^>]*>(.*?)</div>", in: block) ?? ""
 
         var img = "", ext = ""
-        if let full = capture("h-threads-img-a\"[^>]*href=\"[^\"]*image/([^\"]+)\"", in: block),
-           let dot = full.lastIndex(of: ".") {
-            img = String(full[full.startIndex..<dot])
-            ext = String(full[dot...])
+        let imgTag = capture("(<a[^>]*h-threads-img-a[^>]*>)", in: block) ?? block
+        let file = capture("href=\"[^\"]*/image/([^\"]+)\"", in: imgTag)
+            ?? capture("<img[^>]*src=\"[^\"]*/thumb/([^\"]+)\"", in: block)
+        if let file, let dot = file.lastIndex(of: ".") {
+            img = String(file[file.startIndex..<dot])
+            ext = String(file[dot...])
         }
 
         var replyCount: Int?

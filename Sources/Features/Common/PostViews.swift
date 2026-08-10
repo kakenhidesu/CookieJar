@@ -136,14 +136,38 @@ struct AsyncThumb: View {
         Color.clear
             .frame(maxWidth: width == nil ? .infinity : nil)
             .frame(width: width, height: height)
-            .overlay(XDAsyncImage(url: XDURLs.shared.thumb(file), contentMode: .fill))
+            .overlay(image)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay(alignment: .bottomTrailing) {
+                if GIF.isGIF(file) { badge }
+            }
             .contentShape(Rectangle())
             .onTapGesture {
                 guard let onTap else { return }
                 onTap(XDURLs.shared.image(file))
                 Haptics.light()
             }
+    }
+
+    @ViewBuilder
+    private var image: some View {
+        if GIF.isGIF(file) {
+            XDGIFImage(primary: XDURLs.shared.thumb(file),
+                       fallback: XDURLs.shared.image(file),
+                       maxPixel: min(height * 3, 360))
+        } else {
+            XDAsyncImage(url: XDURLs.shared.thumb(file), contentMode: .fill)
+        }
+    }
+
+    private var badge: some View {
+        Text(verbatim: "GIF")
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(.black.opacity(0.55)))
+            .padding(4)
     }
 }
 
