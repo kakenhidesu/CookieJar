@@ -117,7 +117,6 @@ struct ForumThreadsScreen: View {
                 ScrollView {
                     LazyVStack(spacing: XDTheme.cardSpacing) {
                         RefreshBanner(isRefreshing: vm.isRefreshing)
-                            .id("top")
 
                         ForEach(vm.items) { item in
                             Button {
@@ -139,6 +138,7 @@ struct ForumThreadsScreen: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
+                    .id("top")
                 }
                 .refreshable { await vm.refresh() }
                 .onChange(of: app.refreshTick[.forums] ?? 0) { _ in

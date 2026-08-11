@@ -365,6 +365,7 @@ struct ReferenceSheet: View {
     @State private var post: XDPost?
     @State private var error: String?
     @State private var isLoading = false
+    @State private var imageViewer: ImageViewerPayload?
 
     private var currentId: Int { stack.last ?? postId }
 
@@ -374,7 +375,7 @@ struct ReferenceSheet: View {
                 VStack(alignment: .leading, spacing: 12) {
                     if let post, !isLoading {
                         PostBodyView(post: post, onTapImage: { url in
-                            app.imageViewer = ImageViewerPayload(images: [url], index: 0)
+                            imageViewer = ImageViewerPayload(images: [url], index: 0)
                         })
                         .xdCard()
 
@@ -409,6 +410,9 @@ struct ReferenceSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) { Button("关闭") { dismiss() } }
             }
+        }
+        .fullScreenCover(item: $imageViewer) { payload in
+            ImageViewerScreen(payload: payload)
         }
         .environment(\.openURL, OpenURLAction { url in
             if let id = XDContent.postId(fromRefURL: url) {
