@@ -6,6 +6,8 @@
   <a href="https://www.gnu.org/licenses/agpl-3.0"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
 </p>
 
+
+
 # CookieJar — 基于 SwiftUI 的第三方 X 岛客户端
 
 一个基于 SwiftUI 的第三方 X 岛客户端
@@ -20,6 +22,36 @@
 - **饼干**：多饼干管理、二维码扫描导入、二维码导出、剪贴板导入、登录官方账号导出饼干
 - **黑名单**：屏蔽饼干 / 串 / 版块 / 关键词
 - **外观**：5 套主题色、深浅色、字号与行距调节、紧凑卡片模式
+
+## 安装
+
+### AltStore
+
+在 iPhone 上点击以下两个badge均可直接添加源。
+
+
+<a href="https://altstore.io/source/raw.githubusercontent.com/kakenhidesu/CookieJar/main/altstore.json?app=com.kakenhi.cookieJar">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/DownloadBadge_dark.png">
+    <img src="assets/DownloadBadge_light.png" alt="Download on AltStore" width="200">
+  </picture>
+</a>
+
+或
+
+<a href="https://celloserenity.github.io/altdirect/?url=https://raw.githubusercontent.com/kakenhidesu/CookieJar/main/altstore.json" target="_blank">
+   <img src="https://github.com/CelloSerenity/altdirect/blob/main/assets/png/AltSource_Blue.png?raw=true" alt="Add AltSource" width="200">
+</a>
+
+也可以手动添加源地址：
+
+```
+https://raw.githubusercontent.com/kakenhidesu/CookieJar/main/altstore.json
+```
+
+### TrollStore
+
+到 [Releases](https://github.com/kakenhidesu/CookieJar/releases) 下载 `.ipa`，用 TrollStore 打开安装
 
 ## 启动
 

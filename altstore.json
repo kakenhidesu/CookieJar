@@ -1,0 +1,30 @@
+{
+  "name": "CookieJar",
+  "identifier": "com.kakenhi.cookiejar.source",
+  "sourceURL": "https://raw.githubusercontent.com/kakenhidesu/CookieJar/main/altstore.json",
+  "apps": [
+    {
+      "name": "CookieJar",
+      "bundleIdentifier": "com.kakenhi.cookieJar",
+      "developerName": "kakenhidesu",
+      "subtitle": "基于 SwiftUI 的第三方 X 岛客户端",
+      "localizedDescription": "一个基于 SwiftUI 的第三方 X 岛客户端。\n\n时间线与全部版块浏览、串内分页与跳页、只看 Po、阅读进度记忆、引用弹窗；发串支持相册图片与涂鸦板、颜文字面板、草稿箱；订阅可搜索与自定义排序；多饼干管理（二维码扫描/导出、剪贴板、官方账号导出），饼干存放在 Keychain。",
+      "iconURL": "https://raw.githubusercontent.com/kakenhidesu/CookieJar/main/Resources/Assets.xcassets/AppIcon.appiconset/icon-1024.png",
+      "tintColor": "7B3FBF",
+      "category": "social",
+      "screenshotURLs": [],
+      "versions": [
+        {
+          "version": "1.0",
+          "buildVersion": "21",
+          "date": "2026-08-07",
+          "localizedDescription": "修复引用弹窗中点击图片无法正常全屏显示；修复在时间线点击下方「版块」tab 的问题。",
+          "downloadURL": "https://github.com/kakenhidesu/CookieJar/releases/download/beta/CookieJar_1.0_21.ipa",
+          "size": 1730047,
+          "minOSVersion": "16.0"
+        }
+      ]
+    }
+  ],
+  "news": []
+}
