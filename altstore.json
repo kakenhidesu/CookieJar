@@ -16,11 +16,11 @@
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "21",
-          "date": "2026-08-07",
-          "localizedDescription": "修复引用弹窗中点击图片无法正常全屏显示；修复在时间线点击下方「版块」tab 的问题。",
-          "downloadURL": "https://github.com/kakenhidesu/CookieJar/releases/download/beta/CookieJar_1.0_21.ipa",
-          "size": 1730047,
+          "buildVersion": "22",
+          "date": "2026-08-12",
+          "localizedDescription": "修复了带引用链接的正文末尾被截断的问题。",
+          "downloadURL": "https://github.com/kakenhidesu/CookieJar/releases/download/beta/CookieJar_b1.0_22.ipa",
+          "size": 1734194,
           "minOSVersion": "16.0"
         }
       ]
