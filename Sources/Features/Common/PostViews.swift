@@ -29,6 +29,8 @@ struct PostBodyView: View {
                 Text(post.title)
                     .font(settings.titleFont)
                     .foregroundStyle(post.kind == .tip ? XDTheme.admin : XDTheme.text)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             if post.name != "无名氏" && !post.name.isEmpty {
                 Text(post.name)
@@ -43,13 +45,7 @@ struct PostBodyView: View {
             }
 
             if !result.plain.isEmpty {
-                Text(result.text)
-                    .font(settings.contentFont)
-                    .foregroundStyle(XDTheme.text)
-                    .lineSpacing(settings.lineSpacing)
-                    .textSelection(.enabled)
-                    .lineLimit(lineLimit)
-                    .fixedSize(horizontal: false, vertical: true)
+                content(result)
             }
 
             if result.hasHidden && !settings.autoRevealHidden {
@@ -73,6 +69,25 @@ struct PostBodyView: View {
                     .font(settings.metaFont)
                     .foregroundStyle(XDTheme.secondaryText)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func content(_ result: XDContent.Result) -> some View {
+        if lineLimit == nil {
+            XDRichText(paragraphs: result.paragraphs,
+                       font: settings.contentFont,
+                       lineSpacing: settings.lineSpacing)
+                .foregroundStyle(XDTheme.text)
+        } else {
+            Text(result.text)
+                .font(settings.contentFont)
+                .foregroundStyle(XDTheme.text)
+                .lineSpacing(settings.lineSpacing)
+                .textSelection(.enabled)
+                .lineLimit(lineLimit)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

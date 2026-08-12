@@ -13,11 +13,9 @@ struct NoticeSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     if let notice = store.notice, !notice.content.isEmpty {
-                        Text(XDContent.parse(notice.content, revealHidden: true).text)
-                            .font(settings.contentFont)
-                            .lineSpacing(settings.lineSpacing)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        XDRichText(paragraphs: XDContent.parse(notice.content, revealHidden: true).paragraphs,
+                                   font: settings.contentFont,
+                                   lineSpacing: settings.lineSpacing)
                     } else if store.isLoading {
                         InlineLoading(text: "正在获取公告…")
                     } else {

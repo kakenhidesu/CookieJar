@@ -246,9 +246,8 @@ struct ForumInfoSheet: View {
                     let message = isTimeline
                         ? (forums.timeline(id: forumId)?.message ?? "")
                         : (forums.forum(id: forumId)?.message ?? "")
-                    Text(XDContent.parse(message, revealHidden: true).text)
-                        .font(.system(size: 15))
-                        .textSelection(.enabled)
+                    XDRichText(paragraphs: XDContent.parse(message, revealHidden: true).paragraphs,
+                               font: .system(size: 15))
                     if !isTimeline, let f = forums.forum(id: forumId) {
                         Divider()
                         LabeledContent("串数", value: "\(f.threadCount)")

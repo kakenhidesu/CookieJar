@@ -4,6 +4,7 @@ enum XDContent {
 
     struct Result {
         var text: AttributedString
+        var paragraphs: [AttributedString]
         var hasHidden: Bool
         var plain: String
         var plainMasked: String
@@ -116,6 +117,8 @@ enum XDContent {
         }
 
         var out = AttributedString()
+        var paragraphs: [AttributedString] = []
+        var current = AttributedString()
         var plain = ""
         var masked = ""
         for run in processed {
@@ -150,10 +153,18 @@ enum XDContent {
                     attr.backgroundColor = hiddenBackground.opacity(0.35)
                 }
                 out.append(attr)
+                if piece.text == "\n" {
+                    paragraphs.append(current)
+                    current = AttributedString()
+                } else {
+                    current.append(attr)
+                }
             }
         }
+        paragraphs.append(current)
+        while let last = paragraphs.last, last.characters.isEmpty { paragraphs.removeLast() }
 
-        return Result(text: out, hasHidden: hasHidden,
+        return Result(text: out, paragraphs: paragraphs, hasHidden: hasHidden,
                       plain: plain.trimmingCharacters(in: .whitespacesAndNewlines),
                       plainMasked: masked.trimmingCharacters(in: .whitespacesAndNewlines))
     }
@@ -349,6 +360,24 @@ enum XDContent {
             pieces.append(Piece(text: ns.substring(from: last), kind: .plain))
         }
         return pieces.isEmpty ? [Piece(text: text, kind: .plain)] : pieces
+    }
+}
+
+struct XDRichText: View {
+    let paragraphs: [AttributedString]
+    var font: Font
+    var lineSpacing: CGFloat = 4
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: lineSpacing) {
+            ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, paragraph in
+                Text(paragraph.characters.isEmpty ? AttributedString(" ") : paragraph)
+                    .font(font)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
 
