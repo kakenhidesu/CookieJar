@@ -39,10 +39,23 @@ final class ThreadViewModel: ObservableObject {
         await load(page: currentFirstPage, reset: true)
     }
 
-    func load(page: Int, reset: Bool = false, prepend: Bool = false) async {
+    func reloadLastPage() async {
+        await inflight?.value
+        await load(page: currentLastPage, force: true)
+    }
+
+    func refreshLastPage() async {
+        let before = replies.count
+        await reloadLastPage()
+        if replies.count == before && error == nil {
+            Toast.shared.show("没有新回复")
+        }
+    }
+
+    func load(page: Int, reset: Bool = false, prepend: Bool = false, force: Bool = false) async {
         guard !isLoading else { return }
         guard page >= 1 else { return }
-        if !reset && loadedPages.contains(page) { return }
+        if !reset && !force && loadedPages.contains(page) { return }
         let task = Task { @MainActor in await self.performLoad(page: page, reset: reset, prepend: prepend) }
         inflight = task
         await task.value
@@ -95,8 +108,14 @@ final class ThreadViewModel: ObservableObject {
         await load(page: currentLastPage + 1)
     }
 
+    func openPage(_ page: Int) async {
+        let target = max(1, page)
+        await load(page: target, reset: true)
+        if target > 1 { await load(page: target - 1, prepend: true) }
+    }
+
     func jump(to page: Int) async {
-        await load(page: max(1, min(page, maxPage)), reset: true)
+        await openPage(min(page, maxPage))
     }
 
     func toggleSubscribe() async {
@@ -135,6 +154,8 @@ struct ThreadScreen: View {
     @State private var showJumpSheet = false
     @State private var jumpPageText = ""
     @State private var didInitialJump = false
+    @State private var restoreTarget: Int?
+    @State private var initialLoadDone = false
 
     init(mainPostId: Int, initialPage: Int = 1, onlyPo: Bool = false, jumpToPostId: Int? = nil) {
         self.mainPostId = mainPostId
@@ -187,18 +208,18 @@ struct ThreadScreen: View {
                                        emptyIcon: "bubble.left",
                                        emptyTitle: "还没有回复",
                                        retry: { Task { await vm.load(page: vm.currentLastPage, reset: true) } },
-                                       refresh: { Task { await vm.refreshCurrentPage() } })
+                                       refresh: { Task { await vm.refreshLastPage() } })
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
                 }
+                .opacity(restoreTarget == nil || didInitialJump ? 1 : 0)
+                .animation(.easeIn(duration: 0.15), value: didInitialJump)
                 .refreshable { await vm.refreshCurrentPage() }
+                .onChange(of: initialLoadDone) { _ in restoreScroll(proxy) }
                 .onChange(of: vm.replies.count) { _ in
-                    guard !didInitialJump, let target = jumpToPostId else { return }
-                    if vm.replies.contains(where: { $0.id == target }) {
-                        didInitialJump = true
-                        withAnimation { proxy.scrollTo(target, anchor: .top) }
-                    }
+                    guard initialLoadDone else { return }
+                    restoreScroll(proxy)
                 }
             }
 
@@ -210,14 +231,19 @@ struct ThreadScreen: View {
         .sheet(isPresented: $showJumpSheet) { jumpSheet }
         .task {
             if vm.mainPost == nil {
-                let start = jumpToPostId != nil
-                    ? initialPage
-                    : (HistoryStore.shared.readProgress(for: mainPostId)?.page ?? initialPage)
+                let progress = jumpToPostId == nil ? HistoryStore.shared.readProgress(for: mainPostId) : nil
+                let start = progress?.page ?? initialPage
+                let target = jumpToPostId ?? progress?.postId
+                restoreTarget = target
                 vm.onlyPo = onlyPo
                 HistoryStore.shared.noteReading(mainPostId: mainPostId, page: start,
-                                                postId: jumpToPostId, onlyPo: onlyPo)
-                await vm.load(page: start, reset: true)
+                                                postId: target, onlyPo: onlyPo)
+                await vm.openPage(start)
+                initialLoadDone = true
             }
+        }
+        .onChange(of: app.threadRefreshTick[mainPostId] ?? 0) { _ in
+            Task { await vm.reloadLastPage() }
         }
         .onDisappear {
             HistoryStore.shared.saveProgress(mainPostId: mainPostId,
@@ -294,6 +320,16 @@ struct ThreadScreen: View {
             }
         }
         .presentationDetents([.medium])
+    }
+
+    private func restoreScroll(_ proxy: ScrollViewProxy) {
+        guard !didInitialJump, let target = restoreTarget else { return }
+        if vm.replies.contains(where: { $0.id == target }) {
+            didInitialJump = true
+            proxy.scrollTo(target, anchor: .top)
+        } else if initialLoadDone {
+            didInitialJump = true
+        }
     }
 
     private func jump(_ page: Int) {

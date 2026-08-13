@@ -67,6 +67,17 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// 发完回复后通知对应的串页面重新拉一次
+    @Published private(set) var threadRefreshTick: [Int: Int] = [:]
+
+    func noteReplyPosted(mainPostId: Int) {
+        threadRefreshTick[mainPostId, default: 0] += 1
+    }
+
+    func noteThreadPosted() {
+        refreshTick[.forums, default: 0] += 1
+    }
+
     func popToRoot(_ tab: AppTab) {
         switch tab {
         case .forums: forumsPath.removeAll()

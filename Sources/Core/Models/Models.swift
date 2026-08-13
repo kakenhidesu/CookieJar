@@ -153,8 +153,8 @@ struct XDPost: Identifiable, Codable, Hashable {
         imageExtension = json["ext"] as? String ?? ""
         postTime = XDTime.parseServer(json["now"] as? String ?? "")
         userHash = json["user_hash"] as? String ?? json["userid"] as? String ?? ""
-        name = (json["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "无名氏"
-        title = (json["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "无标题"
+        name = (json["name"] as? String).map(XDContent.unescape).flatMap { $0.isEmpty ? nil : $0 } ?? "无名氏"
+        title = (json["title"] as? String).map(XDContent.unescape).flatMap { $0.isEmpty ? nil : $0 } ?? "无标题"
         content = json["content"] as? String ?? ""
         isSage = (XDJSON.int(json["sage"]) ?? 0) != 0
         isAdmin = (XDJSON.int(json["admin"]) ?? 0) != 0

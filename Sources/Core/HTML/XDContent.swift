@@ -177,6 +177,31 @@ enum XDContent {
         parse(html, revealHidden: true).plainMasked
     }
 
+    static func unescape(_ s: String) -> String {
+        if s.contains("<") { return plainText(s) }
+        guard s.contains("&") else { return s }
+        let chars = Array(s)
+        var out = ""
+        var i = 0
+        while i < chars.count {
+            if chars[i] == "&" {
+                var j = i + 1
+                var ent = ""
+                while j < chars.count, chars[j] != ";", ent.count < 10 {
+                    ent.append(chars[j]); j += 1
+                }
+                if j < chars.count, chars[j] == ";", let decoded = entity(ent) {
+                    out += decoded
+                    i = j + 1
+                    continue
+                }
+            }
+            out.append(chars[i])
+            i += 1
+        }
+        return out
+    }
+
     private static func firstHiddenTag(in text: String) -> Range<String.Index>? {
         let open = text.range(of: "[h]")
         let close = text.range(of: "[/h]")

@@ -409,6 +409,12 @@ struct ComposeScreen: View {
                 cookies.recordDisplayId(last.userHash)
             }
 
+            if let mainPostId {
+                AppState.shared.noteReplyPosted(mainPostId: mainPostId)
+            } else {
+                AppState.shared.noteThreadPosted()
+            }
+
             if let draftId, let d = DraftStore.shared.drafts.first(where: { $0.id == draftId }) {
                 DraftStore.shared.remove(d)
             }
