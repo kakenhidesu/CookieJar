@@ -16,11 +16,11 @@
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "22",
-          "date": "2026-08-12",
-          "localizedDescription": "修复了带引用链接的正文末尾被截断的问题。",
-          "downloadURL": "https://github.com/kakenhidesu/CookieJar/releases/download/beta/CookieJar_b1.0_22.ipa",
-          "size": 1734194,
+          "buildVersion": "23",
+          "date": "2026-08-13",
+          "localizedDescription": "1. 修复了标题中转义符号的显示问题（&amp; -> &）\n2. 修复了在串的最底端点击刷新按钮会回到本页页首的问题\n3. 优化了恢复阅读位置的功能，原本只能跳到页首，现在可以精准跳转了\n4. 加了发串和发回复之后会自动刷新一下的功能\n5. 现在跳页的时候会把上一页也加载出来了",
+          "downloadURL": "https://github.com/kakenhidesu/CookieJar/releases/download/beta/CookieJar_b1.0_23.ipa",
+          "size": 1742813,
           "minOSVersion": "16.0"
         }
       ]
