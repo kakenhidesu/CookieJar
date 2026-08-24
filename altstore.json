@@ -16,11 +16,11 @@
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "23",
-          "date": "2026-08-13",
-          "localizedDescription": "1. 修复了标题中转义符号的显示问题（&amp; -> &）\n2. 修复了在串的最底端点击刷新按钮会回到本页页首的问题\n3. 优化了恢复阅读位置的功能，原本只能跳到页首，现在可以精准跳转了\n4. 加了发串和发回复之后会自动刷新一下的功能\n5. 现在跳页的时候会把上一页也加载出来了",
-          "downloadURL": "https://github.com/kakenhidesu/CookieJar/releases/download/beta/CookieJar_b1.0_23.ipa",
-          "size": 1742813,
+          "buildVersion": "24",
+          "date": "2026-08-24",
+          "localizedDescription": "1. 现在跳页的时候会停在目标页并顺带加载上一页\n2. 翻页时如果网络出错，会显示加载失败和重试按钮，不用再上拉下拉才能重新加载了\n3. 版块卡片去掉了没什么用的「剩余n」\n4. 修复了「最后回复于」的显示\n5. 串外订阅按钮用主题色填充",
+          "downloadURL": "https://github.com/kakenhidesu/CookieJar/releases/download/beta/CookieJar_b1.0_24.ipa",
+          "size": 1756688,
           "minOSVersion": "16.0"
         }
       ]
