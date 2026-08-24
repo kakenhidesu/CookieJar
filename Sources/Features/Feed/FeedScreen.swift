@@ -23,6 +23,18 @@ final class FeedViewModel: ObservableObject {
         await load(reset: false)
     }
 
+    func retry() async {
+        await inflight?.value
+        if items.isEmpty {
+            page = 1
+            reachedEnd = false
+            await load(reset: true)
+        } else {
+            page += 1
+            await load(reset: false)
+        }
+    }
+
     func load(reset: Bool) async {
         guard !isLoading else { return }
         let task = Task { @MainActor in await self.performLoad(reset: reset) }
@@ -118,11 +130,24 @@ struct FeedScreen: View {
                     Button {
                         app.openThread(post.id)
                     } label: {
-                        PostBodyView(post: post, isPo: true, lineLimit: 6, showForum: true, showReplyCount: true,
-                                     onTapImage: { url in
-                                         app.imageViewer = ImageViewerPayload(images: [url], index: 0)
-                                     })
-                            .xdCard()
+                        VStack(alignment: .leading, spacing: 10) {
+                            PostBodyView(post: post, isPo: true, lineLimit: 6, showForum: true,
+                                         showPostId: false,
+                                         onTapImage: { url in
+                                             app.imageViewer = ImageViewerPayload(images: [url], index: 0)
+                                         })
+
+                            HStack(spacing: 10) {
+                                Label(String(post.replyCount ?? 0), systemImage: "bubble.left")
+                                Spacer()
+                                Text(verbatim: "No.\(post.id)")
+                                    .font(.system(size: 11.5 * settings.fontScale, design: .monospaced))
+                                    .foregroundStyle(XDTheme.secondaryText.opacity(0.8))
+                            }
+                            .font(settings.metaFont)
+                            .foregroundStyle(XDTheme.secondaryText)
+                        }
+                        .xdCard()
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
@@ -144,7 +169,7 @@ struct FeedScreen: View {
                                    emptyIcon: "bookmark",
                                    emptyTitle: "还没有订阅",
                                    emptySubtitle: "在串页面点右上角书签即可订阅。\n订阅 ID 可在「我的 → 设置 → 订阅」中查看和同步。",
-                                   retry: { Task { await vm.refresh() } })
+                                   retry: { Task { await vm.retry() } })
                 }
             }
             .padding(.horizontal, 12)

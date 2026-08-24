@@ -5,6 +5,7 @@ final class ThreadListViewModel: ObservableObject {
     @Published var items: [ForumThread] = []
     @Published var isLoading = false
     @Published var isRefreshing = false
+    @Published var showRefreshBanner = false
     @Published var error: String?
     @Published var reachedEnd = false
 
@@ -30,19 +31,33 @@ final class ThreadListViewModel: ObservableObject {
         await load(reset: true)
     }
 
-    func refresh() async {
+    func refresh(showBanner: Bool = false) async {
         await inflight?.value
         isRefreshing = true
+        showRefreshBanner = showBanner
         page = 1
         reachedEnd = false
         await load(reset: true)
         isRefreshing = false
+        showRefreshBanner = false
     }
 
     func loadMoreIfNeeded(current item: ForumThread) async {
         guard !isLoading, !reachedEnd, items.last?.id == item.id else { return }
         page += 1
         await load(reset: false)
+    }
+
+    func retry() async {
+        await inflight?.value
+        if items.isEmpty {
+            page = 1
+            reachedEnd = false
+            await load(reset: true)
+        } else {
+            page += 1
+            await load(reset: false)
+        }
     }
 
     func load(reset: Bool) async {
@@ -116,7 +131,9 @@ struct ForumThreadsScreen: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: XDTheme.cardSpacing) {
-                        RefreshBanner(isRefreshing: vm.isRefreshing)
+                        if vm.showRefreshBanner {
+                            InlineLoading(text: "正在刷新…")
+                        }
 
                         ForEach(vm.items) { item in
                             Button {
@@ -133,8 +150,8 @@ struct ForumThreadsScreen: View {
                                        error: vm.error,
                                        isEmpty: vm.items.isEmpty,
                                        reachedEnd: vm.reachedEnd,
-                                       retry: { Task { await vm.load(reset: true) } },
-                                       refresh: { Task { await vm.refresh() } })
+                                       retry: { Task { await vm.retry() } },
+                                       refresh: { Task { await vm.refresh(showBanner: true) } })
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
@@ -145,7 +162,7 @@ struct ForumThreadsScreen: View {
                     guard isRoot else { return }
                     withAnimation { proxy.scrollTo("top", anchor: .top) }
                     Haptics.light()
-                    Task { await vm.refresh() }
+                    Task { await vm.refresh(showBanner: true) }
                 }
             }
 
@@ -170,7 +187,7 @@ struct ForumThreadsScreen: View {
                         showForumInfo = true
                     } label: { Label("版块说明", systemImage: "info.circle") }
                     Button {
-                        Task { await vm.refresh() }
+                        Task { await vm.refresh(showBanner: true) }
                     } label: { Label("刷新", systemImage: "arrow.clockwise") }
                     Button {
                         app.push(.searchResult(query: ""))

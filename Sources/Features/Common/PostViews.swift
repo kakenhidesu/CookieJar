@@ -6,7 +6,6 @@ struct PostBodyView: View {
     var poHash: String?
     var lineLimit: Int?
     var showForum: Bool = false
-    var showReplyCount: Bool = false
     var showPostId: Bool = true
     var onTapImage: ((URL) -> Void)?
 
@@ -62,12 +61,6 @@ struct PostBodyView: View {
 
             if let file = post.imageFile, settings.showImages {
                 AsyncThumb(file: file, onTap: onTapImage)
-            }
-
-            if showReplyCount, let count = post.replyCount, count > 0 {
-                Text("\(count) 回应")
-                    .font(settings.metaFont)
-                    .foregroundStyle(XDTheme.secondaryText)
             }
         }
     }
@@ -229,9 +222,6 @@ struct ThreadCardView: View {
 
             HStack(spacing: 10) {
                 Label(String(item.mainPost.replyCount ?? 0), systemImage: "bubble.left")
-                if let remain = item.remainReplies, remain > 0 {
-                    Text(verbatim: "剩余 \(remain)")
-                }
                 Text(verbatim: "最后回复于 \(RelativeTime.hourMinute(item.lastReplyTime))")
                     .lineLimit(1)
                 Spacer()
@@ -254,6 +244,9 @@ struct ThreadCardView: View {
                     Haptics.light()
                 } label: {
                     Image(systemName: subscriptions.contains(item.mainPost.id) ? "bookmark.fill" : "bookmark")
+                        .foregroundStyle(subscriptions.contains(item.mainPost.id)
+                                         ? settings.accent.color
+                                         : XDTheme.secondaryText)
                 }
                 .buttonStyle(.borderless)
 

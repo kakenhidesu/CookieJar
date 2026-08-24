@@ -148,7 +148,7 @@ struct XDPost: Identifiable, Codable, Hashable {
     init(json: [String: Any], kind: PostKind = .post) {
         id = XDJSON.int(json["id"]) ?? 0
         forumId = XDJSON.int(json["fid"])
-        replyCount = XDJSON.int(json["ReplyCount"])
+        replyCount = XDJSON.int(json["ReplyCount"]) ?? XDJSON.int(json["replyCount"]) ?? XDJSON.int(json["reply_count"])
         image = json["img"] as? String ?? ""
         imageExtension = json["ext"] as? String ?? ""
         postTime = XDTime.parseServer(json["now"] as? String ?? "")
@@ -158,7 +158,7 @@ struct XDPost: Identifiable, Codable, Hashable {
         content = json["content"] as? String ?? ""
         isSage = (XDJSON.int(json["sage"]) ?? 0) != 0
         isAdmin = (XDJSON.int(json["admin"]) ?? 0) != 0
-        isHidden = (XDJSON.int(json["Hide"]) ?? 0) != 0
+        isHidden = (XDJSON.int(json["Hide"]) ?? XDJSON.int(json["hide"]) ?? 0) != 0
         self.kind = kind
         mainPostId = XDJSON.int(json["resto"]) ?? XDJSON.int(json["parent_id"])
     }

@@ -1,5 +1,10 @@
 import SwiftUI
 
+struct ThreadAnchor: Equatable {
+    var postId: Int
+    var tick: Int
+}
+
 @MainActor
 final class ThreadViewModel: ObservableObject {
     @Published var mainPost: XDPost?
@@ -7,8 +12,10 @@ final class ThreadViewModel: ObservableObject {
     @Published var replies: [XDPost] = []
     @Published var loadedPages: [Int] = []
     @Published var isLoading = false
+    @Published var isPositioning = false
     @Published var error: String?
     @Published var onlyPo = false
+    @Published var pageAnchor: ThreadAnchor?
 
     var isSubscribed: Bool { SubscriptionCache.shared.contains(mainPostId) }
 
@@ -16,6 +23,7 @@ final class ThreadViewModel: ObservableObject {
     private(set) var lastVisibleId: Int?
     private var loadedIds = Set<Int>()
     private var inflight: Task<Void, Never>?
+    private var anchorTick = 0
 
     init(mainPostId: Int) {
         self.mainPostId = mainPostId
@@ -110,8 +118,26 @@ final class ThreadViewModel: ObservableObject {
 
     func openPage(_ page: Int) async {
         let target = max(1, page)
+        isPositioning = true
         await load(page: target, reset: true)
-        if target > 1 { await load(page: target - 1, prepend: true) }
+        guard target > 1, let anchor = replies.first?.id else {
+            isPositioning = false
+            return
+        }
+        await load(page: target - 1, prepend: true)
+        anchorTick += 1
+        pageAnchor = ThreadAnchor(postId: anchor, tick: anchorTick)
+    }
+
+    func retryLoad() async {
+        await inflight?.value
+        if replies.isEmpty {
+            await load(page: currentLastPage, reset: true)
+        } else if canLoadMore {
+            await load(page: currentLastPage + 1)
+        } else {
+            await reloadLastPage()
+        }
     }
 
     func jump(to page: Int) async {
@@ -207,16 +233,23 @@ struct ThreadScreen: View {
                                        reachedEnd: !vm.canLoadMore,
                                        emptyIcon: "bubble.left",
                                        emptyTitle: "还没有回复",
-                                       retry: { Task { await vm.load(page: vm.currentLastPage, reset: true) } },
+                                       retry: { Task { await vm.retryLoad() } },
                                        refresh: { Task { await vm.refreshLastPage() } })
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
                 }
-                .opacity(restoreTarget == nil || didInitialJump ? 1 : 0)
+                .opacity((restoreTarget == nil || didInitialJump) && !vm.isPositioning ? 1 : 0)
+                .animation(.easeIn(duration: 0.15), value: vm.isPositioning)
                 .animation(.easeIn(duration: 0.15), value: didInitialJump)
                 .refreshable { await vm.refreshCurrentPage() }
                 .onChange(of: initialLoadDone) { _ in restoreScroll(proxy) }
+                .onChange(of: vm.pageAnchor) { anchor in
+                    if let anchor, restoreTarget == nil || didInitialJump {
+                        proxy.scrollTo(anchor.postId, anchor: .top)
+                    }
+                    vm.isPositioning = false
+                }
                 .onChange(of: vm.replies.count) { _ in
                     guard initialLoadDone else { return }
                     restoreScroll(proxy)

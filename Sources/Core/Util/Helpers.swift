@@ -7,7 +7,7 @@ enum AppInfo {
     }
 
     static var version: String {
-        "beta\(plist("CFBundleShortVersionString", "1.0"))_\(plist("CFBundleVersion", "23"))"
+        "beta\(plist("CFBundleShortVersionString", "1.0"))_\(plist("CFBundleVersion", "24"))"
     }
 }
 
@@ -63,9 +63,19 @@ enum RelativeTime {
         return f
     }()
 
+    private static let dateOnlyFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "zh_CN")
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
     static func hourMinute(_ date: Date) -> String {
         guard date != .distantPast else { return "" }
-        return hourMinuteFormatter.string(from: date)
+        if Date().timeIntervalSince(date) < 86400 {
+            return hourMinuteFormatter.string(from: date)
+        }
+        return dateOnlyFormatter.string(from: date)
     }
 
     private static let dayFormatter: DateFormatter = {
@@ -220,35 +230,6 @@ struct InlineLoading: View {
     }
 }
 
-struct RefreshBanner: View {
-    var isRefreshing: Bool
-    @State private var angle: Double = 0
-
-    var body: some View {
-        Group {
-            if isRefreshing {
-                HStack(spacing: 8) {
-                    Image(systemName: "arrow.clockwise")
-                        .rotationEffect(.degrees(angle))
-                    Text("正在刷新…")
-                }
-                .font(.system(size: 13))
-                .foregroundStyle(XDTheme.secondaryText)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .transition(.opacity.combined(with: .move(edge: .top)))
-                .onAppear {
-                    angle = 0
-                    withAnimation(.linear(duration: 0.9).repeatForever(autoreverses: false)) {
-                        angle = 360
-                    }
-                }
-            }
-        }
-        .animation(.easeInOut(duration: 0.22), value: isRefreshing)
-    }
-}
-
 struct ListStatusView: View {
     var isLoading: Bool
     var error: String?
@@ -270,6 +251,25 @@ struct ListStatusView: View {
                            subtitle: error,
                            actionTitle: retry != nil ? "重试" : nil,
                            action: retry)
+        } else if error != nil {
+            HStack(spacing: 8) {
+                Text("加载失败")
+                    .font(.system(size: 12))
+                    .foregroundStyle(XDTheme.admin)
+                if let retry {
+                    Button {
+                        retry()
+                        Haptics.light()
+                    } label: {
+                        Label("重试", systemImage: "arrow.clockwise")
+                            .font(.system(size: 12))
+                            .labelStyle(.titleAndIcon)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+            .padding(.vertical, 16)
         } else if isEmpty {
             EmptyStateView(icon: emptyIcon, title: emptyTitle, subtitle: emptySubtitle,
                            actionTitle: retry != nil ? "重新加载" : nil, action: retry)
