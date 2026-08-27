@@ -13,6 +13,7 @@ struct PostBodyView: View {
     @EnvironmentObject private var forums: ForumStore
     @ObservedObject private var cookies = CookieStore.shared
     @State private var revealHidden = false
+    @State private var showSageTip = false
 
     private var parsed: XDContent.Result {
         XDContent.parse(post.content, revealHidden: revealHidden || settings.autoRevealHidden)
@@ -24,27 +25,17 @@ struct PostBodyView: View {
         VStack(alignment: .leading, spacing: 8) {
             header
 
-            if post.title != "无标题" && !post.title.isEmpty {
-                Text(post.title)
-                    .font(settings.titleFont)
-                    .foregroundStyle(post.kind == .tip ? XDTheme.admin : XDTheme.text)
+            // 列表卡片：图挪到左边做完整缩略图，右边排文字；串内保持大图
+            if lineLimit != nil, let file = post.imageFile, settings.showImages {
+                HStack(alignment: .top, spacing: 10) {
+                    AsyncThumb(file: file, width: 96, height: 96, fit: true, onTap: onTapImage)
+                    VStack(alignment: .leading, spacing: 8) {
+                        textStack(result)
+                    }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if post.name != "无名氏" && !post.name.isEmpty {
-                Text(post.name)
-                    .font(settings.metaFont)
-                    .foregroundStyle(XDTheme.secondaryText)
-            }
-
-            if post.isSage {
-                Text("本串已经被SAGE")
-                    .font(settings.metaFont)
-                    .foregroundStyle(XDTheme.admin)
-            }
-
-            if !result.plain.isEmpty {
-                content(result)
+                }
+            } else {
+                textStack(result)
             }
 
             if result.hasHidden && !settings.autoRevealHidden {
@@ -59,9 +50,81 @@ struct PostBodyView: View {
                 .buttonStyle(.borderless)
             }
 
-            if let file = post.imageFile, settings.showImages {
+            if lineLimit == nil, let file = post.imageFile, settings.showImages {
                 AsyncThumb(file: file, onTap: onTapImage)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func textStack(_ result: XDContent.Result) -> some View {
+        if post.title != "无标题" && !post.title.isEmpty {
+            Text(post.title)
+                .font(settings.titleFont)
+                .foregroundStyle(post.kind == .tip ? XDTheme.admin : XDTheme.text)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        if post.name != "无名氏" && !post.name.isEmpty {
+            Text(post.name)
+                .font(settings.metaFont)
+                .foregroundStyle(XDTheme.secondaryText)
+        }
+
+        if post.isSage {
+            HStack(spacing: 4) {
+                Text("本串已经被SAGE")
+                Text(verbatim: "(?)")
+                    .overlay(alignment: .bottom) {
+                        DashedLine()
+                            .stroke(style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                            .frame(height: 1)
+                            .offset(y: 2)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        withAnimation(.easeOut(duration: 0.15)) { showSageTip = true }
+                        Haptics.light()
+                    }
+            }
+            .font(settings.metaFont)
+            .foregroundStyle(XDTheme.admin)
+            // 气泡锚在标签正下方；不拦截任何触摸，滚动时位置一变就消失
+            .overlay(alignment: .topLeading) {
+                if showSageTip {
+                    Text("被SAGE的串不会因为新回复而被顶上来，且一定时间后无法回复")
+                        .font(.system(size: 13))
+                        .foregroundStyle(XDTheme.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(10)
+                        .frame(width: 260, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(XDTheme.card)
+                                .shadow(color: .black.opacity(0.22), radius: 10, y: 3)
+                        )
+                        .offset(x: sageTipShift, y: 22)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
+            }
+            .zIndex(1)
+            .background(
+                GeometryReader { geo in
+                    Color.clear.onChange(of: geo.frame(in: .global).minY) { _ in
+                        if showSageTip { showSageTip = false }
+                    }
+                }
+            )
+            .task(id: showSageTip) {
+                guard showSageTip else { return }
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                withAnimation(.easeOut(duration: 0.2)) { showSageTip = false }
+            }
+        }
+
+        if !result.plain.isEmpty {
+            content(result)
         }
     }
 
@@ -82,6 +145,12 @@ struct PostBodyView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    /// 带左侧缩略图时文字列整体右移了一个图列宽，气泡左移同样距离，
+    /// 让它从卡片左缘起排，右端就不会伸出屏幕
+    private var sageTipShift: CGFloat {
+        (lineLimit != nil && post.imageFile != nil && settings.showImages) ? -106 : 0
     }
 
     private var isSelf: Bool {
@@ -109,7 +178,7 @@ struct PostBodyView: View {
             if isSelf {
                 XDBadge(text: "我", color: XDTheme.selfHash)
             }
-            if isPoPost {
+            if isPoPost, lineLimit == nil {
                 XDBadge(text: "Po", color: XDTheme.poBadge)
             }
             if showForum, let fid = post.forumId, fid > 0 {
@@ -138,12 +207,15 @@ struct AsyncThumb: View {
     var width: CGFloat?
     var height: CGFloat = 170
     var cornerRadius: CGFloat = 10
+    /// true 时等比完整显示（不裁切），留白用淡色填充
+    var fit: Bool = false
     var onTap: ((URL) -> Void)?
 
     var body: some View {
         Color.clear
             .frame(maxWidth: width == nil ? .infinity : nil)
             .frame(width: width, height: height)
+            .background(fit ? XDTheme.hairline.opacity(0.25) : .clear)
             .overlay(image)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay(alignment: .bottomTrailing) {
@@ -162,9 +234,10 @@ struct AsyncThumb: View {
         if GIF.isGIF(file) {
             XDGIFImage(primary: XDURLs.shared.thumb(file),
                        fallback: XDURLs.shared.image(file),
+                       contentMode: fit ? .fit : .fill,
                        maxPixel: min(height * 3, 360))
         } else {
-            XDAsyncImage(url: XDURLs.shared.thumb(file), contentMode: .fill)
+            XDAsyncImage(url: XDURLs.shared.thumb(file), contentMode: fit ? .fit : .fill)
         }
     }
 
@@ -277,6 +350,10 @@ func postCommonMenuItems(_ post: XDPost) -> some View {
                          message: "已复制链接")
     } label: { Label("复制链接", systemImage: "link") }
 
+    ShareLink(item: XDURLs.shared.webThreadURL(post.mainPostId ?? post.id)) {
+        Label("分享", systemImage: "square.and.arrow.up")
+    }
+
     Divider()
 
     Button {
@@ -290,5 +367,28 @@ func postCommonMenuItems(_ post: XDPost) -> some View {
     Button(role: .destructive) {
         BlacklistStore.shared.block(user: post.userHash)
         Toast.shared.show("已屏蔽饼干 \(post.userHash)")
-    } label: { Label("屏蔽该饼干", systemImage: "person.slash") }
+    } label: {
+        Label {
+            Text("屏蔽该饼干")
+        } icon: {
+            Image("BlockCookie")
+                .renderingMode(.template)
+        }
+    }
+
+    Button(role: .destructive) {
+        let id = post.mainPostId ?? post.id
+        BlacklistStore.shared.block(post: id, title: post.title)
+        Toast.shared.show("已屏蔽 No.\(id)")
+    } label: { Label("屏蔽该串", systemImage: "eye.slash") }
+}
+
+/// (?) 下面那条虚线
+struct DashedLine: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: rect.minX, y: rect.midY))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+        return p
+    }
 }

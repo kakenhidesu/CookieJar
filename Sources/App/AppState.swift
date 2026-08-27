@@ -96,6 +96,21 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// 当前 Tab 导航栈里最上层的串页面（引用弹窗判断「是否在串内」用）
+    var activeThreadId: Int? {
+        let path: [AppRoute]
+        switch tab {
+        case .forums: path = forumsPath
+        case .feed: path = feedPath
+        case .history: path = historyPath
+        case .profile: path = profilePath
+        }
+        for route in path.reversed() {
+            if case .thread(let id, _, _, _) = route { return id }
+        }
+        return nil
+    }
+
     func openThread(_ id: Int, page: Int = 1, onlyPo: Bool = false, jumpTo: Int? = nil) {
         push(.thread(id: id, page: page, onlyPo: onlyPo, jumpTo: jumpTo))
     }

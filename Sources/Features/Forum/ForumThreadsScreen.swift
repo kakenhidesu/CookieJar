@@ -242,10 +242,14 @@ struct ForumThreadsScreen: View {
 
         postCommonMenuItems(item.mainPost)
 
-        Button(role: .destructive) {
-            BlacklistStore.shared.block(post: item.mainPost.id, title: item.mainPost.title)
-            Toast.shared.show("已屏蔽该串")
-        } label: { Label("屏蔽该串", systemImage: "eye.slash") }
+        if effectiveIsTimeline, let fid = item.mainPost.forumId, fid > 0 {
+            Button(role: .destructive) {
+                BlacklistStore.shared.block(forum: fid)
+                Toast.shared.show("已屏蔽版块「\(forums.name(forId: fid))」，可在黑名单中解除")
+            } label: {
+                Label("屏蔽版块「\(forums.name(forId: fid))」", systemImage: "square.grid.2x2.fill")
+            }
+        }
     }
 }
 

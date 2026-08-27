@@ -97,12 +97,16 @@ enum HTMLScrape {
         if id == nil, let s = capture("data-threads-id=\"(\\d+)\"", in: block) { id = Int(s) }
         guard let postId = id else { return nil }
 
-        var mainPostId = postId
+        // 主串号只认 href 里明确的 /t/xxx。回复的引用链接是 ?r=xxx&page=N 形式，
+        // 不含主串号，这时留空，由界面层决定怎么跳；页码倒是有，一并带上
+        var mainPostId: Int? = kind == .reference ? nil : postId
+        var refPage: Int?
         if let href = capture("href=\"([^\"]+)\"", in: anchorAttrs) {
             let cleaned = href.components(separatedBy: "?").first ?? href
             if let s = capture("/t/(\\d+)", in: cleaned) ?? capture("id/(\\d+)", in: cleaned), let n = Int(s) {
                 mainPostId = n
             }
+            refPage = capture("[?&]page=(\\d+)", in: href).flatMap(Int.init)
         }
 
         let title = capture("h-threads-info-title\"[^>]*>(.*?)</span>", in: block).map(plainText) ?? "无标题"
@@ -136,7 +140,8 @@ enum HTMLScrape {
                       content: content.trimmingCharacters(in: .whitespacesAndNewlines),
                       isAdmin: isAdmin,
                       kind: kind,
-                      mainPostId: mainPostId)
+                      mainPostId: mainPostId,
+                      refPage: refPage)
     }
 
     static func parseCookieExport(_ html: String, id: Int) -> XDCookie? {

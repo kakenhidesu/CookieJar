@@ -372,17 +372,9 @@ struct ThreadScreen: View {
 
     private func mainPostCard(_ main: XDPost) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            PostBodyView(post: main, isPo: true, showForum: true, onTapImage: openImage)
-            HStack {
-                if let fid = main.forumId {
-                    Text(ForumStore.shared.name(forId: fid))
-                        .font(settings.metaFont)
-                        .foregroundStyle(XDTheme.secondaryText)
-                }
-                Spacer()
-                Text(verbatim: "\(main.replyCount ?? 0) 回应")
-                    .font(settings.metaFont)
-                    .foregroundStyle(XDTheme.secondaryText)
+            PostBodyView(post: main, isPo: true, onTapImage: openImage)
+            if let fid = main.forumId, fid > 0 {
+                XDBadge(text: ForumStore.shared.name(forId: fid), color: XDTheme.link)
             }
         }
         .xdCard()
@@ -434,15 +426,37 @@ struct ReferenceSheet: View {
     @State private var post: XDPost?
     @State private var error: String?
     @State private var isLoading = false
+    @State private var isChecking = false
+    @State private var jumpFailed = false
     @State private var imageViewer: ImageViewerPayload?
 
     private var currentId: Int { stack.last ?? postId }
+
+    /// 先拉当前串对应页确认该回复在本串，是就跳过去，不是就报跨串
+    private func jumpToReply(thread: Int, post: XDPost) async {
+        isChecking = true
+        defer { isChecking = false }
+        let page = post.refPage ?? 1
+        let result = try? await XDAPI.shared.thread(mainPostId: thread, page: page,
+                                                    cookie: CookieStore.shared.cookieValue)
+        if let result,
+           result.replies.contains(where: { $0.id == post.id }) || result.mainPost.id == post.id {
+            dismiss()
+            app.openThread(thread, page: page, jumpTo: post.id)
+        } else {
+            withAnimation { jumpFailed = true }
+        }
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    if let post, !isLoading {
+                    if jumpFailed {
+                        EmptyStateView(icon: "exclamationmark.triangle",
+                                       title: "加载失败",
+                                       subtitle: "跨串引用回复无法跳转到原串")
+                    } else if let post, !isLoading {
                         PostBodyView(post: post, onTapImage: { url in
                             imageViewer = ImageViewerPayload(images: [url], index: 0)
                         })
@@ -451,12 +465,27 @@ struct ReferenceSheet: View {
                         if let main = post.mainPostId, main > 0 {
                             Button {
                                 dismiss()
-                                app.openThread(main, jumpTo: post.id)
+                                app.openThread(main, page: post.refPage ?? 1, jumpTo: post.id)
                             } label: {
                                 Label(String(format: "跳转到原串 No.%d", main), systemImage: "arrow.up.forward.app")
                                     .frame(maxWidth: .infinity)
                             }
                             .buttonStyle(.bordered)
+                        } else if let current = app.activeThreadId {
+                            // 回复的引用链接不带主串号，只带页码。先拉当前串对应页
+                            // 验证该回复确实在本串，再跳；不在就是跨串引用，明确报错
+                            Button {
+                                Task { await jumpToReply(thread: current, post: post) }
+                            } label: {
+                                if isChecking {
+                                    ProgressView().frame(maxWidth: .infinity)
+                                } else {
+                                    Label("跳转到该回复的位置", systemImage: "arrow.up.forward.app")
+                                        .frame(maxWidth: .infinity)
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(isChecking)
                         }
                     } else if let error, !isLoading {
                         EmptyStateView(icon: "exclamationmark.triangle", title: "获取引用失败", subtitle: error)
@@ -496,6 +525,7 @@ struct ReferenceSheet: View {
 
     private func load() async {
         isLoading = true
+        jumpFailed = false
         defer { isLoading = false }
         do {
             post = try await XDAPI.shared.reference(postId: currentId,

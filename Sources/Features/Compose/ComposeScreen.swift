@@ -321,7 +321,6 @@ struct ComposeScreen: View {
             forumId = ReportInfo.dutyRoomForumId
             content = ">>No.\(postId)\n"
         }
-        contentFocused = true
     }
 
     private func insertHiddenTag() {

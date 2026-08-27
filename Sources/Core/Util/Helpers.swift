@@ -7,7 +7,7 @@ enum AppInfo {
     }
 
     static var version: String {
-        "beta\(plist("CFBundleShortVersionString", "1.0"))_\(plist("CFBundleVersion", "24"))"
+        "beta\(plist("CFBundleShortVersionString", "1.0"))_\(plist("CFBundleVersion", "25"))"
     }
 }
 
@@ -175,6 +175,8 @@ struct ToastOverlay: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: toast.current)
     }
 }
+
+
 
 enum Haptics {
     static func light() { UIImpactFeedbackGenerator(style: .light).impactOccurred() }

@@ -49,10 +49,10 @@ struct SearchScreen: View {
 
                     if isLoading {
                         InlineLoading(text: "搜索中…")
-                    } else if let error {
+                    } else if error != nil {
                         EmptyStateView(icon: "magnifyingglass",
                                        title: "搜索不可用",
-                                       subtitle: "\(error)\n\nX 岛官方搜索接口时常关闭，可以用上面的「直接打开串号」功能。")
+                                       subtitle: "x岛官方搜索接口已关闭，我们有生之年再见( ´_ゝ`)旦\n您仍可以使用直接跳转串号的功能")
                     } else if searched && results.isEmpty {
                         EmptyStateView(icon: "magnifyingglass", title: "没有找到结果")
                     } else if !searched {

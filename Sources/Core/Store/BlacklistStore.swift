@@ -33,6 +33,7 @@ final class BlacklistStore: ObservableObject {
     func unblock(post id: Int) { data.posts.removeValue(forKey: id); persist() }
 
     func isBlocked(forum id: Int) -> Bool { data.forums.contains(id) }
+    func block(forum id: Int) { data.forums.insert(id); persist() }
     func toggle(forum id: Int) {
         if data.forums.contains(id) { data.forums.remove(id) } else { data.forums.insert(id) }
         persist()
