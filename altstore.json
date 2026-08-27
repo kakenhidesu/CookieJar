@@ -16,11 +16,11 @@
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "24",
-          "date": "2026-08-24",
-          "localizedDescription": "1. 现在跳页的时候会停在目标页并顺带加载上一页\n2. 翻页时如果网络出错，会显示加载失败和重试按钮，不用再上拉下拉才能重新加载了\n3. 版块卡片去掉了没什么用的「剩余n」\n4. 修复了「最后回复于」的显示\n5. 串外订阅按钮用主题色填充",
-          "downloadURL": "https://github.com/kakenhidesu/CookieJar/releases/download/beta/CookieJar_b1.0_24.ipa",
-          "size": 1756688,
+          "buildVersion": "25",
+          "date": "2026-08-27",
+          "localizedDescription": "1. 串外图片显示改为左侧缩略图\n2. 增加了「屏蔽该串」和「屏蔽该版块」的功能，顺便给屏蔽饼干加了个合适的图标\n3. 加了 SAGE 的说明气泡\n4. 引用回复跳转优化（跨串引用回复因为 API 不提供回复的主串，无法实现，残念）\n5. 串外不再显示 Po 标识\n6. 串内串首卡片布局优化",
+          "downloadURL": "https://github.com/kakenhidesu/CookieJar/releases/download/beta/CookieJar_b1.0_25.ipa",
+          "size": 1756331,
           "minOSVersion": "16.0"
         }
       ]
