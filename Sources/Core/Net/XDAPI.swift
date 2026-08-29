@@ -113,6 +113,36 @@ struct XDAPI {
         return ThreadPage(mainPost: mainPost, replies: replies, tip: tip)
     }
 
+    func locateReply(_ replyId: Int, in mainPostId: Int, cookie: String? = nil) async throws -> Int? {
+        let first = try await thread(mainPostId: mainPostId, page: 1, cookie: cookie)
+        if first.mainPost.id == replyId { return 1 }
+        var lo = 1
+        var hi = max(1, first.mainPost.maxPage)
+        while lo <= hi {
+            let mid = (lo + hi) / 2
+            let page: ThreadPage
+            if mid == 1 {
+                page = first
+            } else {
+                page = try await thread(mainPostId: mainPostId, page: mid, cookie: cookie)
+            }
+            let ids = page.replies.map(\.id).filter { $0 != 9_999_999 }
+            if ids.contains(replyId) { return mid }
+            guard let firstId = ids.first, let lastId = ids.last else {
+                hi = mid - 1
+                continue
+            }
+            if replyId < firstId {
+                hi = mid - 1
+            } else if replyId > lastId {
+                lo = mid + 1
+            } else {
+                return nil
+            }
+        }
+        return nil
+    }
+
     func reference(postId: Int, cookie: String? = nil) async throws -> XDPost {
         guard postId > 0 else { throw XDError.api("串的 ID 要大于 0") }
 
@@ -265,6 +295,20 @@ struct XDAPI {
             throw XDError.api("获取饼干失败")
         }
         return c
+    }
+
+    func applyCookie(verify: String) async throws {
+        guard let userCookie = await http.userCookie else { throw XDError.needLogin }
+        guard await http.hasSession else { throw XDError.api("请先加载验证码") }
+        let data = try await http.postForm(urls.applyCookieURL, fields: ["verify": verify], cookie: userCookie)
+        try HTMLScrape.checkResult(data.utf8String)
+    }
+
+    func deleteCookie(id: Int, verify: String) async throws {
+        guard let userCookie = await http.userCookie else { throw XDError.needLogin }
+        guard await http.hasSession else { throw XDError.api("请先加载验证码") }
+        let data = try await http.postForm(urls.deleteCookieURL(id), fields: ["verify": verify], cookie: userCookie)
+        try HTMLScrape.checkResult(data.utf8String)
     }
 
     func search(query: String, page: Int, cookie: String? = nil) async throws -> [XDPost] {

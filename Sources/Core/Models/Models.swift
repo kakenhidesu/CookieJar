@@ -104,8 +104,6 @@ struct XDPost: Identifiable, Codable, Hashable {
     var isHidden: Bool
     var kind: PostKind
     var mainPostId: Int?
-    /// 引用接口给出的该回复在串内的页码（仅 reference 场景有值）
-    var refPage: Int?
 
     var hasImage: Bool { !image.isEmpty }
     var imageFile: String? { hasImage ? image + imageExtension : nil }
@@ -129,8 +127,7 @@ struct XDPost: Identifiable, Codable, Hashable {
          isAdmin: Bool = false,
          isHidden: Bool = false,
          kind: PostKind = .post,
-         mainPostId: Int? = nil,
-         refPage: Int? = nil) {
+         mainPostId: Int? = nil) {
         self.id = id
         self.forumId = forumId
         self.replyCount = replyCount
@@ -146,7 +143,6 @@ struct XDPost: Identifiable, Codable, Hashable {
         self.isHidden = isHidden
         self.kind = kind
         self.mainPostId = mainPostId
-        self.refPage = refPage
     }
 
     init(json: [String: Any], kind: PostKind = .post) {

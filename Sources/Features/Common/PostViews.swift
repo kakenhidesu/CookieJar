@@ -25,7 +25,6 @@ struct PostBodyView: View {
         VStack(alignment: .leading, spacing: 8) {
             header
 
-            // 列表卡片：图挪到左边做完整缩略图，右边排文字；串内保持大图
             if lineLimit != nil, let file = post.imageFile, settings.showImages {
                 HStack(alignment: .top, spacing: 10) {
                     AsyncThumb(file: file, width: 96, height: 96, fit: true, onTap: onTapImage)
@@ -89,7 +88,6 @@ struct PostBodyView: View {
             }
             .font(settings.metaFont)
             .foregroundStyle(XDTheme.admin)
-            // 气泡锚在标签正下方；不拦截任何触摸，滚动时位置一变就消失
             .overlay(alignment: .topLeading) {
                 if showSageTip {
                     Text("被SAGE的串不会因为新回复而被顶上来，且一定时间后无法回复")
@@ -147,8 +145,6 @@ struct PostBodyView: View {
         }
     }
 
-    /// 带左侧缩略图时文字列整体右移了一个图列宽，气泡左移同样距离，
-    /// 让它从卡片左缘起排，右端就不会伸出屏幕
     private var sageTipShift: CGFloat {
         (lineLimit != nil && post.imageFile != nil && settings.showImages) ? -106 : 0
     }
@@ -207,7 +203,6 @@ struct AsyncThumb: View {
     var width: CGFloat?
     var height: CGFloat = 170
     var cornerRadius: CGFloat = 10
-    /// true 时等比完整显示（不裁切），留白用淡色填充
     var fit: Bool = false
     var onTap: ((URL) -> Void)?
 
@@ -383,7 +378,6 @@ func postCommonMenuItems(_ post: XDPost) -> some View {
     } label: { Label("屏蔽该串", systemImage: "eye.slash") }
 }
 
-/// (?) 下面那条虚线
 struct DashedLine: Shape {
     func path(in rect: CGRect) -> Path {
         var p = Path()

@@ -66,10 +66,16 @@ struct CookieScreen: View {
                 Button {
                     showManual = true
                 } label: { Label("手动输入 userhash", systemImage: "keyboard") }
+            }
 
+            Section {
                 Button {
                     showLogin = true
-                } label: { Label("登录 X 岛账号获取", systemImage: "person.badge.key") }
+                } label: { Label("X 岛账号饼干管理", systemImage: "person.badge.key") }
+            } header: {
+                Text("账号饼干")
+            } footer: {
+                Text("登录 X 岛官方账号，可领取新饼干、导入到本地或永久注销。")
             }
 
             Section {
@@ -273,6 +279,19 @@ struct LoginSheet: View {
     @State private var loggedIn = false
     @State private var info: CookiesListInfo?
     @State private var remoteNames: [Int: String] = [:]
+    @State private var pendingAction: CookieAction?
+
+    private enum CookieAction: Identifiable {
+        case apply
+        case delete(id: Int, name: String)
+
+        var id: String {
+            switch self {
+            case .apply: return "apply"
+            case .delete(let id, _): return "delete-\(id)"
+            }
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -314,7 +333,7 @@ struct LoginSheet: View {
                         Text("登录只用于从官方账号导出饼干，账号密码不会被保存。")
                     }
                 } else {
-                    Section("账号饼干") {
+                    Section {
                         if let info {
                             LabeledContent("饼干槽", value: "\(info.current) / \(info.total)")
                             LabeledContent("领取通道", value: info.canGetCookie ? "已开放" : "已关闭")
@@ -334,10 +353,24 @@ struct LoginSheet: View {
                                         .buttonStyle(.borderless)
                                     }
                                 }
+                                .swipeActions {
+                                    Button(role: .destructive) {
+                                        pendingAction = .delete(id: id,
+                                                                name: remoteNames[id] ?? String(format: "饼干 #%d", id))
+                                    } label: { Label("注销", systemImage: "trash") }
+                                }
+                            }
+                            if info.canGetCookie {
+                                Button {
+                                    pendingAction = .apply
+                                } label: { Label("领取新饼干", systemImage: "plus.circle") }
+                                .disabled(info.current >= info.total)
                             }
                         } else {
                             ProgressView()
                         }
+                    } header: {
+                        Text("账号饼干")
                     }
                     Section {
                         Button("退出登录", role: .destructive) {
@@ -359,7 +392,40 @@ struct LoginSheet: View {
                 loggedIn = await XDHTTP.shared.isLoggedIn
                 if loggedIn { await loadCookiesList() } else { await loadVerify() }
             }
+            .overlay { ToastOverlay() }
+            .sheet(item: $pendingAction) { action in
+                switch action {
+                case .apply:
+                    CookieVerifySheet(title: "领取新饼干",
+                                      message: "饼干烘焙中...",
+                                      confirmTitle: "领取",
+                                      isDestructive: false,
+                                      perform: { try await XDAPI.shared.applyCookie(verify: $0) },
+                                      onSuccess: { Task { await actionSucceeded(action) } })
+                case .delete(let id, let name):
+                    CookieVerifySheet(title: "注销饼干",
+                                      message: "你确定要碎掉这块饼干吗？“\(name)”将会永久消失！（真的很久！）",
+                                      confirmTitle: "永久注销",
+                                      isDestructive: true,
+                                      perform: { try await XDAPI.shared.deleteCookie(id: id, verify: $0) },
+                                      onSuccess: { Task { await actionSucceeded(action) } })
+                }
+            }
         }
+    }
+
+    private func actionSucceeded(_ action: CookieAction) async {
+        switch action {
+        case .apply:
+            Toast.shared.success("已领取新饼干")
+        case .delete(let id, _):
+            remoteNames.removeValue(forKey: id)
+            if let local = cookies.cookies.first(where: { $0.remoteId == id }) {
+                cookies.remove(local)
+            }
+            Toast.shared.success("饼干已注销")
+        }
+        await loadCookiesList()
     }
 
     private func loadVerify() async {
@@ -410,6 +476,102 @@ struct LoginSheet: View {
             Toast.shared.success("已导入 \(cookie.name)")
         } catch {
             Toast.shared.error(error)
+        }
+    }
+}
+
+struct CookieVerifySheet: View {
+    let title: String
+    let message: String
+    let confirmTitle: String
+    let isDestructive: Bool
+    let perform: (String) async throws -> Void
+    var onSuccess: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var verify = ""
+    @State private var verifyImage: UIImage?
+    @State private var isWorking = false
+    @State private var errorText: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text(message)
+                        .font(.system(size: 14))
+                        .foregroundStyle(isDestructive ? XDTheme.admin : XDTheme.text)
+                }
+                Section {
+                    HStack {
+                        TextField("输入验证码", text: $verify)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        Spacer()
+                        Button {
+                            Task { await loadVerify() }
+                        } label: {
+                            if let verifyImage {
+                                Image(uiImage: verifyImage)
+                                    .resizable().scaledToFit().frame(height: 34)
+                            } else {
+                                Text("点击获取").font(.system(size: 13))
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                } header: {
+                    Text("验证码")
+                } footer: {
+                    if let errorText {
+                        Text(errorText)
+                            .foregroundStyle(XDTheme.admin)
+                    }
+                }
+                Section {
+                    Button(role: isDestructive ? .destructive : nil) {
+                        Task { await submit() }
+                    } label: {
+                        HStack {
+                            if isWorking { ProgressView() }
+                            Text(confirmTitle)
+                        }
+                    }
+                    .disabled(isWorking || verify.isEmpty)
+                }
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+            }
+            .task { await loadVerify() }
+        }
+        .presentationDetents([.medium])
+    }
+
+    private func loadVerify() async {
+        verifyImage = nil
+        do {
+            let data = try await XDAPI.shared.verifyImage()
+            verifyImage = UIImage(data: data)
+        } catch {
+            Toast.shared.error(error)
+        }
+    }
+
+    private func submit() async {
+        isWorking = true
+        errorText = nil
+        defer { isWorking = false }
+        do {
+            try await perform(verify)
+            onSuccess()
+            dismiss()
+        } catch {
+            errorText = error.localizedDescription
+            verify = ""
+            await loadVerify()
         }
     }
 }

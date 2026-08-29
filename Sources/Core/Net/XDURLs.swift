@@ -98,6 +98,8 @@ final class XDURLs {
     func addHTMLFeedURL(_ tid: Int) -> URL { web("Home/Forum/addFeed/tid/\(tid).html") }
     func delHTMLFeedURL(_ tid: Int) -> URL { web("Home/Forum/delFeed/tid/\(tid).html") }
     func exportCookieURL(_ cookieId: Int) -> URL { web("Member/User/Cookie/export/id/\(cookieId).html") }
+    var applyCookieURL: URL { web("Member/User/Cookie/apply.html") }
+    func deleteCookieURL(_ cookieId: Int) -> URL { web("Member/User/Cookie/delete/id/\(cookieId).html") }
 
     func webThreadURL(_ id: Int, page: Int? = nil) -> URL {
         page.map { web("t/\(id)", ["page": "\($0)"]) } ?? web("t/\(id)")

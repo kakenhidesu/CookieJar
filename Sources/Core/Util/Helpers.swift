@@ -7,7 +7,7 @@ enum AppInfo {
     }
 
     static var version: String {
-        "beta\(plist("CFBundleShortVersionString", "1.0"))_\(plist("CFBundleVersion", "25"))"
+        "beta\(plist("CFBundleShortVersionString", "1.0"))_\(plist("CFBundleVersion", "26"))"
     }
 }
 

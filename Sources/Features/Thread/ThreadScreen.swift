@@ -22,6 +22,7 @@ final class ThreadViewModel: ObservableObject {
     let mainPostId: Int
     private(set) var lastVisibleId: Int?
     private var loadedIds = Set<Int>()
+    private var replyPage: [Int: Int] = [:]
     private var inflight: Task<Void, Never>?
     private var anchorTick = 0
 
@@ -39,6 +40,7 @@ final class ThreadViewModel: ObservableObject {
         replies = []
         loadedPages = []
         loadedIds = []
+        replyPage = [:]
         await load(page: 1, reset: true)
     }
 
@@ -83,10 +85,12 @@ final class ThreadViewModel: ObservableObject {
                 replies = []
                 loadedPages = []
                 loadedIds = []
+                replyPage = [:]
             }
             let blacklist = BlacklistStore.shared
             let fresh = result.replies.filter { !loadedIds.contains($0.id) && !blacklist.shouldHide($0) }
             fresh.forEach { loadedIds.insert($0.id) }
+            fresh.forEach { replyPage[$0.id] = page }
             if prepend {
                 replies.insert(contentsOf: fresh, at: 0)
             } else {
@@ -116,18 +120,22 @@ final class ThreadViewModel: ObservableObject {
         await load(page: currentLastPage + 1)
     }
 
-    func openPage(_ page: Int) async {
+    func openPage(_ page: Int, anchorPostId: Int? = nil) async {
         let target = max(1, page)
         isPositioning = true
         await load(page: target, reset: true)
-        guard target > 1, let anchor = replies.first?.id else {
+        var anchorId = anchorPostId.flatMap { id in replies.contains(where: { $0.id == id }) ? id : nil }
+        if anchorId == nil, target > 1 { anchorId = replies.first?.id }
+        guard let anchor = anchorId else {
             isPositioning = false
             return
         }
-        await load(page: target - 1, prepend: true)
+        if target > 1 { await load(page: target - 1, prepend: true) }
         anchorTick += 1
         pageAnchor = ThreadAnchor(postId: anchor, tick: anchorTick)
     }
+
+    func page(of id: Int) -> Int? { replyPage[id] }
 
     func retryLoad() async {
         await inflight?.value
@@ -182,6 +190,14 @@ struct ThreadScreen: View {
     @State private var didInitialJump = false
     @State private var restoreTarget: Int?
     @State private var initialLoadDone = false
+    @State private var returnAnchor: ReturnAnchor?
+    @State private var highlightId: Int?
+    @State private var highlightTask: Task<Void, Never>?
+
+    private struct ReturnAnchor {
+        var page: Int
+        var postId: Int
+    }
 
     init(mainPostId: Int, initialPage: Int = 1, onlyPo: Bool = false, jumpToPostId: Int? = nil) {
         self.mainPostId = mainPostId
@@ -192,10 +208,10 @@ struct ThreadScreen: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            XDTheme.background.ignoresSafeArea()
+        ScrollViewReader { proxy in
+            ZStack(alignment: .bottomTrailing) {
+                XDTheme.background.ignoresSafeArea()
 
-            ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: XDTheme.cardSpacing) {
                         if let main = vm.mainPost {
@@ -254,9 +270,21 @@ struct ThreadScreen: View {
                     guard initialLoadDone else { return }
                     restoreScroll(proxy)
                 }
-            }
+                .onChange(of: app.threadJump) { req in
+                    guard let req, req.threadId == mainPostId,
+                          app.activeThreadId == mainPostId else { return }
+                    app.threadJump = nil
+                    Task { await performJump(req, proxy: proxy) }
+                }
 
-            replyButton
+                replyButton
+
+                if returnAnchor != nil {
+                    returnButton(proxy)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                }
+            }
         }
         .navigationTitle(vm.onlyPo ? "只看 Po" : String(format: "No.%d", mainPostId))
         .navigationBarTitleDisplayMode(.inline)
@@ -370,6 +398,84 @@ struct ThreadScreen: View {
         Task { await vm.jump(to: page) }
     }
 
+    private func refTapAction(from postId: Int) -> OpenURLAction {
+        OpenURLAction { url in
+            if XDContent.postId(fromRefURL: url) != nil {
+                app.referenceOrigin = (threadId: mainPostId, postId: postId)
+            }
+            if app.handle(url: url) { return .handled }
+            return .systemAction
+        }
+    }
+
+    private func performJump(_ req: AppState.ThreadJump, proxy: ScrollViewProxy) async {
+        let originId: Int
+        if let origin = app.referenceOrigin, origin.threadId == mainPostId {
+            originId = origin.postId
+        } else {
+            originId = vm.lastVisibleId ?? mainPostId
+        }
+        app.referenceOrigin = nil
+        let originPage = vm.page(of: originId) ?? vm.currentFirstPage
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
+            returnAnchor = ReturnAnchor(page: originPage, postId: originId)
+        }
+        await scrollTo(postId: req.postId, page: req.page, proxy: proxy)
+        Haptics.light()
+    }
+
+    private func returnToOrigin(_ proxy: ScrollViewProxy) async {
+        guard let anchor = returnAnchor else { return }
+        withAnimation(.easeOut(duration: 0.2)) { returnAnchor = nil }
+        await scrollTo(postId: anchor.postId, page: anchor.page, proxy: proxy)
+        Haptics.light()
+    }
+
+    private func scrollTo(postId: Int, page: Int, proxy: ScrollViewProxy) async {
+        if postId == mainPostId {
+            withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo("main", anchor: .top) }
+        } else if vm.replies.contains(where: { $0.id == postId }) {
+            withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo(postId, anchor: .top) }
+        } else {
+            await vm.openPage(page, anchorPostId: postId)
+        }
+        flashHighlight(postId)
+    }
+
+    private func flashHighlight(_ id: Int) {
+        highlightTask?.cancel()
+        withAnimation(.easeIn(duration: 0.2)) { highlightId = id }
+        highlightTask = Task {
+            try? await Task.sleep(nanoseconds: 1_600_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.5)) { highlightId = nil }
+        }
+    }
+
+    @ViewBuilder
+    private func highlightBorder(for id: Int) -> some View {
+        if highlightId == id {
+            RoundedRectangle(cornerRadius: XDTheme.cardRadius, style: .continuous)
+                .stroke(settings.accent.color, lineWidth: 2)
+        }
+    }
+
+    private func returnButton(_ proxy: ScrollViewProxy) -> some View {
+        Button {
+            Task { await returnToOrigin(proxy) }
+        } label: {
+            Label("回到引用处", systemImage: "arrow.uturn.backward")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(Capsule().fill(settings.accent.color))
+                .shadow(color: .black.opacity(0.18), radius: 8, y: 4)
+        }
+        .padding(.leading, 18)
+        .padding(.bottom, 24)
+    }
+
     private func mainPostCard(_ main: XDPost) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             PostBodyView(post: main, isPo: true, onTapImage: openImage)
@@ -377,7 +483,9 @@ struct ThreadScreen: View {
                 XDBadge(text: ForumStore.shared.name(forId: fid), color: XDTheme.link)
             }
         }
+        .environment(\.openURL, refTapAction(from: main.id))
         .xdCard()
+        .overlay { highlightBorder(for: main.id) }
         .contextMenu { postMenu(main) }
     }
 
@@ -386,7 +494,9 @@ struct ThreadScreen: View {
                      poHash: vm.mainPost?.userHash,
                      showForum: false,
                      onTapImage: openImage)
+            .environment(\.openURL, refTapAction(from: reply.id))
             .xdCard()
+            .overlay { highlightBorder(for: reply.id) }
             .contextMenu { postMenu(reply) }
     }
 
@@ -432,20 +542,18 @@ struct ReferenceSheet: View {
 
     private var currentId: Int { stack.last ?? postId }
 
-    /// 先拉当前串对应页确认该回复在本串，是就跳过去，不是就报跨串
     private func jumpToReply(thread: Int, post: XDPost) async {
         isChecking = true
         defer { isChecking = false }
-        let page = post.refPage ?? 1
-        let result = try? await XDAPI.shared.thread(mainPostId: thread, page: page,
-                                                    cookie: CookieStore.shared.cookieValue)
-        if let result,
-           result.replies.contains(where: { $0.id == post.id }) || result.mainPost.id == post.id {
-            dismiss()
-            app.openThread(thread, page: page, jumpTo: post.id)
-        } else {
-            withAnimation { jumpFailed = true }
-        }
+        do {
+            if let page = try await XDAPI.shared.locateReply(post.id, in: thread,
+                                                             cookie: CookieStore.shared.cookieValue) {
+                app.requestThreadJump(threadId: thread, page: page, postId: post.id)
+                dismiss()
+                return
+            }
+        } catch {}
+        withAnimation { jumpFailed = true }
     }
 
     var body: some View {
@@ -454,8 +562,8 @@ struct ReferenceSheet: View {
                 VStack(alignment: .leading, spacing: 12) {
                     if jumpFailed {
                         EmptyStateView(icon: "exclamationmark.triangle",
-                                       title: "加载失败",
-                                       subtitle: "跨串引用回复无法跳转到原串")
+                                       title: "无法跳转",
+                                       subtitle: "该引用不在当前串内（跨串引用或已被删除）")
                     } else if let post, !isLoading {
                         PostBodyView(post: post, onTapImage: { url in
                             imageViewer = ImageViewerPayload(images: [url], index: 0)
@@ -464,16 +572,21 @@ struct ReferenceSheet: View {
 
                         if let main = post.mainPostId, main > 0 {
                             Button {
+                                if main == app.activeThreadId {
+                                    app.requestThreadJump(threadId: main, page: 1, postId: post.id)
+                                } else {
+                                    app.openThread(main, jumpTo: post.id)
+                                }
                                 dismiss()
-                                app.openThread(main, page: post.refPage ?? 1, jumpTo: post.id)
                             } label: {
-                                Label(String(format: "跳转到原串 No.%d", main), systemImage: "arrow.up.forward.app")
+                                Label(main == app.activeThreadId
+                                          ? (post.id == main ? "跳转到主串" : "跳转到该回复的位置")
+                                          : String(format: "跳转到原串 No.%d", main),
+                                      systemImage: "arrow.up.forward.app")
                                     .frame(maxWidth: .infinity)
                             }
                             .buttonStyle(.bordered)
                         } else if let current = app.activeThreadId {
-                            // 回复的引用链接不带主串号，只带页码。先拉当前串对应页
-                            // 验证该回复确实在本串，再跳；不在就是跨串引用，明确报错
                             Button {
                                 Task { await jumpToReply(thread: current, post: post) }
                             } label: {

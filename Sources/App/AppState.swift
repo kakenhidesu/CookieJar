@@ -43,6 +43,22 @@ final class AppState: ObservableObject {
     @Published var imageViewer: ImageViewerPayload?
     @Published var compose: ComposeTarget?
 
+    struct ThreadJump: Equatable {
+        var threadId: Int
+        var page: Int
+        var postId: Int
+        var tick: Int
+    }
+    @Published var threadJump: ThreadJump?
+    private var threadJumpTick = 0
+
+    var referenceOrigin: (threadId: Int, postId: Int)?
+
+    func requestThreadJump(threadId: Int, page: Int, postId: Int) {
+        threadJumpTick += 1
+        threadJump = ThreadJump(threadId: threadId, page: page, postId: postId, tick: threadJumpTick)
+    }
+
     private init() {
         let s = SettingsStore.shared
         currentForumId = s.defaultForumId
@@ -67,7 +83,6 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// 发完回复后通知对应的串页面重新拉一次
     @Published private(set) var threadRefreshTick: [Int: Int] = [:]
 
     func noteReplyPosted(mainPostId: Int) {
@@ -96,7 +111,6 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// 当前 Tab 导航栈里最上层的串页面（引用弹窗判断「是否在串内」用）
     var activeThreadId: Int? {
         let path: [AppRoute]
         switch tab {
