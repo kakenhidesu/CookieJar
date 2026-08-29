@@ -16,11 +16,11 @@
       "versions": [
         {
           "version": "1.0",
-          "buildVersion": "25",
-          "date": "2026-08-27",
-          "localizedDescription": "1. 串外图片显示改为左侧缩略图\n2. 增加了「屏蔽该串」和「屏蔽该版块」的功能，顺便给屏蔽饼干加了个合适的图标\n3. 加了 SAGE 的说明气泡\n4. 引用回复跳转优化（跨串引用回复因为 API 不提供回复的主串，无法实现，残念）\n5. 串外不再显示 Po 标识\n6. 串内串首卡片布局优化",
-          "downloadURL": "https://github.com/kakenhidesu/CookieJar/releases/download/beta/CookieJar_b1.0_25.ipa",
-          "size": 1756331,
+          "buildVersion": "26",
+          "date": "2026-08-29",
+          "localizedDescription": "1. 串内引用跳转和回到引用处\n2. 修复了误报跨串回复的情况\n3. 现在可以在软件内领取饼干和碎饼",
+          "downloadURL": "https://github.com/kakenhidesu/CookieJar/releases/download/beta/CookieJar_b1.0_26.ipa",
+          "size": 1838212,
           "minOSVersion": "16.0"
         }
       ]
