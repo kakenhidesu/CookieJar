@@ -78,6 +78,7 @@ struct XDGIFImage: View {
     var maxPixel: CGFloat = 240
     var budgetBytes: Int = 8 * 1024 * 1024
     var placeholder: Color = XDTheme.hairline.opacity(0.4)
+    var onLoaded: ((UIImage) -> Void)?
 
     @State private var animated: UIImage?
     @State private var still: UIImage?
@@ -108,6 +109,9 @@ struct XDGIFImage: View {
         animated = nil
         still = nil
         failed = false
+        defer {
+            if let img = animated ?? still { onLoaded?(img) }
+        }
 
         if let data = await ImageCache.shared.rawData(for: primary) {
             if let frames = await decode(data) {

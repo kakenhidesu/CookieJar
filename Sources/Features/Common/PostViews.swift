@@ -25,7 +25,7 @@ struct PostBodyView: View {
         VStack(alignment: .leading, spacing: 8) {
             header
 
-            if lineLimit != nil, let file = post.imageFile, settings.showImages {
+            if let file = post.imageFile, settings.showImages {
                 HStack(alignment: .top, spacing: 10) {
                     AsyncThumb(file: file, width: 96, height: 96, fit: true, onTap: onTapImage)
                     VStack(alignment: .leading, spacing: 8) {
@@ -47,10 +47,6 @@ struct PostBodyView: View {
                         .font(.system(size: 12))
                 }
                 .buttonStyle(.borderless)
-            }
-
-            if lineLimit == nil, let file = post.imageFile, settings.showImages {
-                AsyncThumb(file: file, onTap: onTapImage)
             }
         }
     }
@@ -146,7 +142,7 @@ struct PostBodyView: View {
     }
 
     private var sageTipShift: CGFloat {
-        (lineLimit != nil && post.imageFile != nil && settings.showImages) ? -106 : 0
+        (post.imageFile != nil && settings.showImages) ? -106 : 0
     }
 
     private var isSelf: Bool {
@@ -198,6 +194,10 @@ struct PostBodyView: View {
     }
 }
 
+final class ThumbFrameBox {
+    var rect: CGRect = .zero
+}
+
 struct AsyncThumb: View {
     let file: String
     var width: CGFloat?
@@ -205,6 +205,8 @@ struct AsyncThumb: View {
     var cornerRadius: CGFloat = 10
     var fit: Bool = false
     var onTap: ((URL) -> Void)?
+
+    @State private var frameBox = ThumbFrameBox()
 
     var body: some View {
         Color.clear
@@ -216,9 +218,16 @@ struct AsyncThumb: View {
             .overlay(alignment: .bottomTrailing) {
                 if GIF.isGIF(file) { badge }
             }
+            .background(GeometryReader { geo in
+                Color.clear
+                    .onAppear { frameBox.rect = geo.frame(in: .global) }
+                    .onChange(of: geo.frame(in: .global)) { frameBox.rect = $0 }
+            })
             .contentShape(Rectangle())
             .onTapGesture {
                 guard let onTap else { return }
+                ImageOrigin.url = XDURLs.shared.image(file)
+                ImageOrigin.frame = frameBox.rect
                 onTap(XDURLs.shared.image(file))
                 Haptics.light()
             }
@@ -232,7 +241,8 @@ struct AsyncThumb: View {
                        contentMode: fit ? .fit : .fill,
                        maxPixel: min(height * 3, 360))
         } else {
-            XDAsyncImage(url: XDURLs.shared.thumb(file), contentMode: fit ? .fit : .fill)
+            XDAsyncImage(url: XDURLs.shared.thumb(file), contentMode: fit ? .fit : .fill,
+                         maxPixel: min(height * 3, 360))
         }
     }
 

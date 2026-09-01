@@ -55,7 +55,8 @@ final class HistoryStore: ObservableObject {
     private let sessionStore = JSONStore<[LastReadSession]>(filename: "last_session.json")
     private let browseStore = JSONStore<[BrowseRecord]>(filename: "browsing.json")
     private let postStore = JSONStore<[PostRecord]>(filename: "posts.json")
-    private let progressStore = JSONStore<[Int: ReadProgress]>(filename: "progress.json")
+    private let progressDisk = ProgressDiskStore()
+    private var progressAppends = 0
 
     private let browseLimit = 1000
 
@@ -66,10 +67,13 @@ final class HistoryStore: ObservableObject {
     private init() {
         browsing = browseStore.load() ?? []
         posts = postStore.load() ?? []
-        progress = progressStore.load() ?? [:]
+        progress = progressDisk.load()
         lastSession = sessionStore.load()?.first
         regroupBrowsing()
         rebuildMyPostIds()
+        if progressDisk.loadedJournalLines > 0 {
+            progressDisk.compact(progress)
+        }
     }
 
     func noteReading(mainPostId: Int, page: Int, postId: Int?, onlyPo: Bool) {
@@ -80,7 +84,7 @@ final class HistoryStore: ObservableObject {
         let session = LastReadSession(mainPostId: mainPostId, page: page,
                                       postId: postId, onlyPo: onlyPo, savedAt: Date())
         lastSession = session
-        sessionStore.saveNow([session])
+        sessionStore.save([session])
     }
 
     func clearReading() {
@@ -174,9 +178,16 @@ final class HistoryStore: ObservableObject {
 
     func saveProgress(mainPostId: Int, page: Int, postId: Int?) {
         guard SettingsStore.shared.restoreReadProgress else { return }
-        progress[mainPostId] = ReadProgress(page: page, postId: postId, updatedAt: Date())
+        let record = ReadProgress(page: page, postId: postId, updatedAt: Date())
+        progress[mainPostId] = record
         progressDirty = true
-        progressStore.save(progress)
+        progressDisk.append(id: mainPostId, record)
+        progressAppends += 1
+        if progressAppends >= 2000 {
+            progressAppends = 0
+            progressDirty = false
+            progressDisk.compact(progress)
+        }
         if let idx = browsing.firstIndex(where: { $0.id == mainPostId }) {
             browsing[idx].lastPage = page
             browsing[idx].lastPostId = postId
@@ -190,12 +201,19 @@ final class HistoryStore: ObservableObject {
 
     func clearProgress() {
         progress = [:]
-        progressStore.saveNow(progress)
+        progressAppends = 0
+        progressDirty = false
+        progressDisk.clear()
     }
 
     func flush() {
         if browsingDirty { browseStore.saveNow(browsing); browsingDirty = false }
         if postsDirty { postStore.saveNow(posts); postsDirty = false }
-        if progressDirty { progressStore.saveNow(progress); progressDirty = false }
+        if progressDirty {
+            progressAppends = 0
+            progressDirty = false
+            progressDisk.compact(progress)
+        }
+        sessionStore.saveNow(lastSession.map { [$0] } ?? [])
     }
 }

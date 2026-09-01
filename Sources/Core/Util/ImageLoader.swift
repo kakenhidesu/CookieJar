@@ -1,12 +1,13 @@
 import SwiftUI
 import UIKit
+import ImageIO
 
 actor ImageCache {
     static let shared = ImageCache()
 
     private let memory = NSCache<NSString, UIImage>()
     private let dir: URL
-    private var inflight: [URL: Task<UIImage?, Never>] = [:]
+    private var inflight: [String: Task<UIImage?, Never>] = [:]
 
     init() {
         memory.countLimit = 60
@@ -22,38 +23,57 @@ actor ImageCache {
         return dir.appendingPathComponent(String(key.suffix(120)))
     }
 
-    func image(for url: URL) async -> UIImage? {
-        if let img = memory.object(forKey: url.absoluteString as NSString) { return img }
-        if let task = inflight[url] { return await task.value }
+    func image(for url: URL, maxPixel: CGFloat = 0) async -> UIImage? {
+        let key = "\(Int(maxPixel))|\(url.absoluteString)"
+        if let img = memory.object(forKey: key as NSString) { return img }
+        if let task = inflight[key] { return await task.value }
 
-        let task = Task<UIImage?, Never> {
-            let file = fileURL(for: url)
-            if let data = try? Data(contentsOf: file), let img = UIImage(data: data) {
-                store(img, data: data, url: url, writeDisk: false)
-                return img
+        let file = fileURL(for: url)
+        let task = Task.detached(priority: .userInitiated) { () -> UIImage? in
+            if let data = try? Data(contentsOf: file) {
+                return ImageCache.decode(data, maxPixel: maxPixel)
             }
-            do {
-                var req = URLRequest(url: url)
-                req.setValue(XDHTTP.userAgent, forHTTPHeaderField: "User-Agent")
-                let (data, resp) = try await URLSession.shared.data(for: req)
-                guard (resp as? HTTPURLResponse)?.statusCode == 200, let img = UIImage(data: data) else { return nil }
-                store(img, data: data, url: url, writeDisk: true)
-                return img
-            } catch {
-                return nil
-            }
+            guard let data = try? await ImageCache.fetch(url) else { return nil }
+            try? data.write(to: file, options: .atomic)
+            return ImageCache.decode(data, maxPixel: maxPixel)
         }
-        inflight[url] = task
+        inflight[key] = task
         let result = await task.value
-        inflight[url] = nil
+        if let result {
+            memory.setObject(result, forKey: key as NSString, cost: ImageCache.decodedCost(result))
+        }
+        inflight[key] = nil
         return result
     }
 
-    private func store(_ image: UIImage, data: Data, url: URL, writeDisk: Bool) {
-        memory.setObject(image, forKey: url.absoluteString as NSString, cost: data.count)
-        if writeDisk {
-            try? data.write(to: fileURL(for: url), options: .atomic)
+    private static func decode(_ data: Data, maxPixel: CGFloat) -> UIImage? {
+        let srcOpts = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(data as CFData, srcOpts) else {
+            return UIImage(data: data)
         }
+        var opts: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true
+        ]
+        if maxPixel > 0 { opts[kCGImageSourceThumbnailMaxPixelSize] = maxPixel }
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, opts as CFDictionary) else {
+            return UIImage(data: data)
+        }
+        return UIImage(cgImage: cg)
+    }
+
+    private static func fetch(_ url: URL) async throws -> Data {
+        var req = URLRequest(url: url)
+        req.setValue(XDHTTP.userAgent, forHTTPHeaderField: "User-Agent")
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+        return data
+    }
+
+    private static func decodedCost(_ image: UIImage) -> Int {
+        guard let cg = image.cgImage else { return 1 }
+        return cg.bytesPerRow * cg.height
     }
 
     func dropMemory() {
@@ -88,14 +108,20 @@ actor ImageCache {
 struct XDAsyncImage<Placeholder: View>: View {
     let url: URL?
     var contentMode: ContentMode
+    var maxPixel: CGFloat
+    var onLoaded: ((UIImage) -> Void)?
     var placeholder: () -> Placeholder
 
     @State private var image: UIImage?
     @State private var failed = false
 
-    init(url: URL?, contentMode: ContentMode = .fill, @ViewBuilder placeholder: @escaping () -> Placeholder) {
+    init(url: URL?, contentMode: ContentMode = .fill, maxPixel: CGFloat = 0,
+         onLoaded: ((UIImage) -> Void)? = nil,
+         @ViewBuilder placeholder: @escaping () -> Placeholder) {
         self.url = url
         self.contentMode = contentMode
+        self.maxPixel = maxPixel
+        self.onLoaded = onLoaded
         self.placeholder = placeholder
     }
 
@@ -120,16 +146,17 @@ struct XDAsyncImage<Placeholder: View>: View {
             guard let url else { failed = true; return }
             image = nil
             failed = false
-            let img = await ImageCache.shared.image(for: url)
+            let img = await ImageCache.shared.image(for: url, maxPixel: maxPixel)
             if img == nil { failed = true }
             withAnimation(.easeOut(duration: 0.18)) { image = img }
+            if let img { onLoaded?(img) }
         }
     }
 }
 
 extension XDAsyncImage where Placeholder == AnyView {
-    init(url: URL?, contentMode: ContentMode = .fill) {
-        self.init(url: url, contentMode: contentMode, placeholder: {
+    init(url: URL?, contentMode: ContentMode = .fill, maxPixel: CGFloat = 0) {
+        self.init(url: url, contentMode: contentMode, maxPixel: maxPixel, placeholder: {
             AnyView(Rectangle().fill(XDTheme.hairline.opacity(0.4)))
         })
     }

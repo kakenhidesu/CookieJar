@@ -1,11 +1,19 @@
 import SwiftUI
 import Photos
 
+@MainActor
+enum ImageOrigin {
+    static var url: URL?
+    static var frame: CGRect = .zero
+}
+
 struct ImageViewerScreen: View {
     let payload: ImageViewerPayload
     @Environment(\.dismiss) private var dismiss
     @State private var index: Int
     @State private var showControls = true
+    @State private var dimOpacity: Double = 1
+    @State private var isDraggingDown = false
 
     init(payload: ImageViewerPayload) {
         self.payload = payload
@@ -14,20 +22,24 @@ struct ImageViewerScreen: View {
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            Color.black.opacity(dimOpacity).ignoresSafeArea()
 
             TabView(selection: $index) {
                 ForEach(Array(payload.images.enumerated()), id: \.offset) { i, url in
-                    ZoomableImage(url: url) {
-                        withAnimation { showControls.toggle() }
-                    }
+                    ZoomableImage(url: url,
+                                  onSingleTap: { withAnimation { showControls.toggle() } },
+                                  onDismiss: { closeNow() },
+                                  onDismissProgress: { p in
+                                      dimOpacity = 1 - Double(p)
+                                      isDraggingDown = p > 0
+                                  })
                     .tag(i)
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             .ignoresSafeArea()
 
-            if showControls {
+            if showControls && !isDraggingDown {
                 VStack {
                     HStack {
                         Button {
@@ -70,6 +82,13 @@ struct ImageViewerScreen: View {
             ToastOverlay()
         }
         .statusBarHidden(!showControls)
+        .presentationBackground(.clear)
+    }
+
+    private func closeNow() {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { dismiss() }
     }
 
     private func save() async {
@@ -99,18 +118,30 @@ struct ImageViewerScreen: View {
 struct ZoomableImage: View {
     let url: URL
     var onSingleTap: () -> Void
+    var onDismiss: () -> Void = {}
+    var onDismissProgress: (CGFloat) -> Void = { _ in }
 
     @State private var scale: CGFloat = 1
     @State private var lastScale: CGFloat = 1
     @State private var offset: CGSize = .zero
     @State private var lastOffset: CGSize = .zero
+    @State private var dismissOffset: CGSize = .zero
+    @State private var dismissScale: CGFloat?
+    @State private var dragIsVertical: Bool?
+    @State private var isClosing = false
+    @State private var imageSize: CGSize?
+
+    private var dismissProgress: CGFloat {
+        min(max(dismissOffset.height, 0) / 350, 1)
+    }
 
     var body: some View {
         GeometryReader { geo in
             content
             .frame(width: geo.size.width, height: geo.size.height)
-            .scaleEffect(scale)
-            .offset(offset)
+            .scaleEffect(dismissScale ?? (scale * (1 - 0.25 * dismissProgress)))
+            .offset(x: offset.width + dismissOffset.width,
+                    y: offset.height + dismissOffset.height)
             .gesture(
                 MagnificationGesture()
                     .onChanged { value in
@@ -129,11 +160,64 @@ struct ZoomableImage: View {
             .simultaneousGesture(
                 DragGesture()
                     .onChanged { value in
-                        guard scale > 1 else { return }
-                        offset = CGSize(width: lastOffset.width + value.translation.width,
-                                        height: lastOffset.height + value.translation.height)
+                        guard !isClosing else { return }
+                        if scale > 1 {
+                            offset = CGSize(width: lastOffset.width + value.translation.width,
+                                            height: lastOffset.height + value.translation.height)
+                            return
+                        }
+                        if dragIsVertical == nil {
+                            let t = value.translation
+                            guard abs(t.width) + abs(t.height) > 10 else { return }
+                            dragIsVertical = abs(t.height) > abs(t.width)
+                        }
+                        guard dragIsVertical == true else { return }
+                        dismissOffset = value.translation
+                        onDismissProgress(dismissProgress)
                     }
-                    .onEnded { _ in lastOffset = offset }
+                    .onEnded { value in
+                        guard !isClosing else { return }
+                        if scale > 1 {
+                            lastOffset = offset
+                            dragIsVertical = nil
+                            return
+                        }
+                        let wasVertical = dragIsVertical == true
+                        dragIsVertical = nil
+                        guard wasVertical else { return }
+                        if dismissOffset.height > 120 || value.predictedEndTranslation.height > 300 {
+                            isClosing = true
+                            let selfFrame = geo.frame(in: .global)
+                            if ImageOrigin.url == url, ImageOrigin.frame.width > 1 {
+                                let target = ImageOrigin.frame
+                                var shrink = target.width / max(selfFrame.width, 1)
+                                if let size = imageSize, size.width > 0, size.height > 0 {
+                                    let fit = min(geo.size.width / size.width, geo.size.height / size.height)
+                                    let dispW = size.width * fit
+                                    let dispH = size.height * fit
+                                    shrink = min(target.width / max(dispW, 1), target.height / max(dispH, 1))
+                                }
+                                withAnimation(.easeInOut(duration: 0.28)) {
+                                    dismissScale = max(shrink, 0.02)
+                                    dismissOffset = CGSize(width: target.midX - selfFrame.midX,
+                                                           height: target.midY - selfFrame.midY)
+                                    onDismissProgress(1)
+                                }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) { onDismiss() }
+                            } else {
+                                withAnimation(.easeOut(duration: 0.18)) {
+                                    dismissOffset.height = geo.size.height
+                                    onDismissProgress(1)
+                                }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { onDismiss() }
+                            }
+                        } else {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                dismissOffset = .zero
+                                onDismissProgress(0)
+                            }
+                        }
+                    }
             )
             .onTapGesture(count: 2) {
                 withAnimation(.spring()) {
@@ -155,9 +239,11 @@ struct ZoomableImage: View {
                        contentMode: .fit,
                        maxPixel: 1024,
                        budgetBytes: 32 * 1024 * 1024,
-                       placeholder: Color.black)
+                       placeholder: Color.black,
+                       onLoaded: { imageSize = $0.size })
         } else {
-            XDAsyncImage(url: url, contentMode: .fit) {
+            XDAsyncImage(url: url, contentMode: .fit,
+                         onLoaded: { imageSize = $0.size }) {
                 AnyView(Color.black)
             }
         }

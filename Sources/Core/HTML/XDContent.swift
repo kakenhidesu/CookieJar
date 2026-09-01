@@ -135,7 +135,11 @@ enum XDContent {
 
                 switch piece.kind {
                 case .plain:
-                    break
+                    if let u = run.style.link {
+                        attr.link = u
+                        attr.foregroundColor = linkColor
+                        attr.underlineStyle = .single
+                    }
                 case .url(let u):
                     attr.link = u
                     attr.foregroundColor = linkColor
@@ -221,6 +225,7 @@ enum XDContent {
         var color: Color?
         var isQuote = false
         var hidden = false
+        var link: URL?
     }
 
     private struct Run {
@@ -241,6 +246,7 @@ enum XDContent {
             case "u": style.underline = false
             case "del", "s", "strike": style.strike = false
             case "font", "span": style.color = nil; style.isQuote = false
+            case "a": style.link = nil
             case "p", "div": runs.append(Run(text: "\n", style: style))
             default: break
             }
@@ -260,12 +266,20 @@ enum XDContent {
                     style.color = parseColor(raw)
                 }
             }
+        case "a":
+            if let href = firstGroup(hrefRegex, in: raw) {
+                let unescaped = href.replacingOccurrences(of: "&amp;", with: "&")
+                style.link = URL(string: unescaped, relativeTo: XDURLs.shared.base)?.absoluteURL
+            }
         default: break
         }
     }
 
     private static let colorRegex = try! NSRegularExpression(
         pattern: "color\\s*[:=]\\s*[\"']?#?([0-9a-zA-Z]+)", options: [])
+
+    private static let hrefRegex = try! NSRegularExpression(
+        pattern: "href\\s*=\\s*\"([^\"]+)\"", options: [.caseInsensitive])
 
     private static let namedColors: [String: String] = [
         "black": "000000", "white": "FFFFFF", "red": "FF0000", "lime": "00FF00",
@@ -398,6 +412,7 @@ struct XDRichText: View {
             ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, paragraph in
                 Text(paragraph.characters.isEmpty ? AttributedString(" ") : paragraph)
                     .font(font)
+                    .lineSpacing(lineSpacing)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
