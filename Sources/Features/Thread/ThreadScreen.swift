@@ -479,6 +479,7 @@ struct ThreadScreen: View {
     private func mainPostCard(_ main: XDPost) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             PostBodyView(post: main, isPo: true, onTapImage: openImage)
+                .zIndex(1)
             if let fid = main.forumId, fid > 0 {
                 XDBadge(text: ForumStore.shared.name(forId: fid), color: XDTheme.link)
             }

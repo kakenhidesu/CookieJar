@@ -26,12 +26,46 @@ struct PostBodyView: View {
             header
 
             if let file = post.imageFile, settings.showImages {
-                HStack(alignment: .top, spacing: 10) {
-                    AsyncThumb(file: file, width: 96, height: 96, fit: true, onTap: onTapImage)
-                    VStack(alignment: .leading, spacing: 8) {
-                        textStack(result)
+                if lineLimit == nil {
+                    let split = besideSplit(result)
+                    HStack(alignment: .top, spacing: 10) {
+                        AsyncThumb(file: file, width: 96, height: 96, fit: true, onTap: onTapImage)
+                        VStack(alignment: .leading, spacing: 8) {
+                            headerStack
+                            if !split.beside.isEmpty {
+                                XDRichText(paragraphs: split.beside,
+                                           font: settings.contentFont,
+                                           lineSpacing: settings.lineSpacing)
+                                    .foregroundStyle(XDTheme.text)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .zIndex(1)
+                    if !split.below.isEmpty {
+                        XDRichText(paragraphs: split.below,
+                                   font: settings.contentFont,
+                                   lineSpacing: settings.lineSpacing)
+                            .foregroundStyle(XDTheme.text)
+                    }
+                } else {
+                    let limit = lineLimit ?? 10
+                    let split = besideSplit(result)
+                    let belowLimit = limit - split.besideLines
+                    HStack(alignment: .top, spacing: 10) {
+                        AsyncThumb(file: file, width: 96, height: 96, fit: true, onTap: onTapImage)
+                        VStack(alignment: .leading, spacing: 8) {
+                            headerStack
+                            if !split.beside.isEmpty {
+                                limitedText(joined(split.beside), lines: min(limit, max(1, split.besideLines)))
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .zIndex(1)
+                    if !split.below.isEmpty, belowLimit > 0 {
+                        limitedText(joined(split.below), lines: belowLimit)
+                    }
                 }
             } else {
                 textStack(result)
@@ -53,6 +87,14 @@ struct PostBodyView: View {
 
     @ViewBuilder
     private func textStack(_ result: XDContent.Result) -> some View {
+        headerStack
+        if !result.plain.isEmpty {
+            content(result)
+        }
+    }
+
+    @ViewBuilder
+    private var headerStack: some View {
         if post.title != "无标题" && !post.title.isEmpty {
             Text(post.title)
                 .font(settings.titleFont)
@@ -116,10 +158,6 @@ struct PostBodyView: View {
                 withAnimation(.easeOut(duration: 0.2)) { showSageTip = false }
             }
         }
-
-        if !result.plain.isEmpty {
-            content(result)
-        }
     }
 
     @ViewBuilder
@@ -143,6 +181,84 @@ struct PostBodyView: View {
 
     private var sageTipShift: CGFloat {
         (post.imageFile != nil && settings.showImages) ? -106 : 0
+    }
+
+    private func limitedText(_ text: AttributedString, lines: Int) -> some View {
+        Text(text)
+            .font(settings.contentFont)
+            .foregroundStyle(XDTheme.text)
+            .lineSpacing(settings.lineSpacing)
+            .textSelection(.enabled)
+            .lineLimit(lines)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func joined(_ paras: [AttributedString]) -> AttributedString {
+        var out = AttributedString()
+        for (index, paragraph) in paras.enumerated() {
+            if index > 0 { out.append(AttributedString("\n")) }
+            out.append(paragraph)
+        }
+        return out
+    }
+
+    private func besideSplit(_ result: XDContent.Result) -> (beside: [AttributedString], below: [AttributedString], besideLines: Int) {
+        let paras = result.paragraphs
+        guard !result.plain.isEmpty, !paras.isEmpty else { return ([], [], 0) }
+        let fontSize = CGFloat(16 * settings.fontScale)
+        let metaSize = CGFloat(12.5 * settings.fontScale)
+        let spacing = CGFloat(settings.lineSpacing)
+        let lineHeight = fontSize * 1.35 + spacing
+        let besideWidth = max(fontSize * 4, UIScreen.main.bounds.width - 52 - 96 - 10)
+        let charsPerLine = max(3, Int(besideWidth / fontSize))
+        var used: CGFloat = 0
+        if post.title != "无标题" && !post.title.isEmpty { used += fontSize * 1.4 + 8 }
+        if post.name != "无名氏" && !post.name.isEmpty { used += metaSize * 1.4 + 8 }
+        if post.isSage { used += metaSize * 1.4 + 8 }
+        var beside: [AttributedString] = []
+        var below: [AttributedString] = []
+        var besideLines = 0
+        var full = false
+        for paragraph in paras {
+            if full {
+                below.append(paragraph)
+                continue
+            }
+            let chars = max(1, paragraph.characters.count)
+            let lines = (chars + charsPerLine - 1) / charsPerLine
+            let height = CGFloat(lines) * lineHeight
+            if used + height <= 96 {
+                beside.append(paragraph)
+                besideLines += lines
+                used += height
+                continue
+            }
+            full = true
+            let remain = 96 - used
+            let fitLines = Int(remain / lineHeight)
+            let cut = fitLines * charsPerLine
+            if fitLines >= 1, chars - cut >= charsPerLine,
+               let parts = splitParagraph(paragraph, at: cut) {
+                beside.append(parts.0)
+                below.append(parts.1)
+                besideLines += fitLines
+            } else if fitLines >= 1 {
+                beside.append(paragraph)
+                besideLines += lines
+            } else {
+                below.append(paragraph)
+            }
+        }
+        return (beside, below, besideLines)
+    }
+
+    private func splitParagraph(_ paragraph: AttributedString, at offset: Int) -> (AttributedString, AttributedString)? {
+        let chars = paragraph.characters
+        guard offset > 0, offset < chars.count,
+              let idx = chars.index(chars.startIndex, offsetBy: offset, limitedBy: chars.endIndex) else { return nil }
+        return (AttributedString(paragraph[paragraph.startIndex..<idx]),
+                AttributedString(paragraph[idx..<paragraph.endIndex]))
     }
 
     private var isSelf: Bool {
@@ -275,6 +391,7 @@ struct ThreadCardView: View {
                          onTapImage: { url in
                              app.imageViewer = ImageViewerPayload(images: [url], index: 0)
                          })
+            .zIndex(1)
 
             if !item.recentReplies.isEmpty && !settings.compactCard {
                 VStack(alignment: .leading, spacing: 6) {

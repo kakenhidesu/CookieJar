@@ -83,7 +83,7 @@ enum XDContent {
                     continue
                 }
             }
-            if ch == "\n" || ch == "\r" {
+            if ch.isNewline {
                 i += 1
                 continue
             }
