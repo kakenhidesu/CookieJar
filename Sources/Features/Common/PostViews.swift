@@ -206,8 +206,8 @@ struct PostBodyView: View {
     private func besideSplit(_ result: XDContent.Result) -> (beside: [AttributedString], below: [AttributedString], besideLines: Int) {
         let paras = result.paragraphs
         guard !result.plain.isEmpty, !paras.isEmpty else { return ([], [], 0) }
-        let fontSize = CGFloat(16 * settings.fontScale)
-        let metaSize = CGFloat(12.5 * settings.fontScale)
+        let fontSize = settings.contentFontSize
+        let metaSize = settings.metaFontSize
         let spacing = CGFloat(settings.lineSpacing)
         let lineHeight = fontSize * 1.35 + spacing
         let besideWidth = max(fontSize * 4, UIScreen.main.bounds.width - 52 - 96 - 10)
@@ -279,7 +279,7 @@ struct PostBodyView: View {
     private var header: some View {
         HStack(spacing: 6) {
             Text(post.userHash)
-                .font(.system(size: 12.5 * settings.fontScale, weight: .medium, design: .monospaced))
+                .font(.system(size: settings.metaFontSize, weight: .medium, design: .monospaced))
                 .foregroundStyle(hashColor)
                 .lineLimit(1)
 
@@ -303,7 +303,7 @@ struct PostBodyView: View {
 
             if showPostId {
                 Text(verbatim: "No.\(post.id)")
-                    .font(.system(size: 11.5 * settings.fontScale, design: .monospaced))
+                    .font(.system(size: settings.captionFontSize, design: .monospaced))
                     .foregroundStyle(XDTheme.secondaryText.opacity(0.8))
             }
         }
@@ -405,7 +405,7 @@ struct ThreadCardView: View {
                                     .font(.system(size: 11, design: .monospaced))
                                     .foregroundStyle(reply.userHash == item.mainPost.userHash ? XDTheme.poBadge : XDTheme.secondaryText)
                                 Text(reply.preview)
-                                    .font(.system(size: 13 * settings.fontScale))
+                                    .font(.system(size: settings.smallFontSize))
                                     .foregroundStyle(XDTheme.secondaryText)
                                     .lineLimit(2)
                             }
@@ -446,7 +446,7 @@ struct ThreadCardView: View {
                 .buttonStyle(.borderless)
 
                 Text(verbatim: "No.\(item.mainPost.id)")
-                    .font(.system(size: 11.5 * settings.fontScale, design: .monospaced))
+                    .font(.system(size: settings.captionFontSize, design: .monospaced))
                     .foregroundStyle(XDTheme.secondaryText.opacity(0.8))
             }
             .font(settings.metaFont)

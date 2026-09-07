@@ -31,6 +31,7 @@ actor ImageCache {
         let file = fileURL(for: url)
         let task = Task.detached(priority: .userInitiated) { () -> UIImage? in
             if let data = try? Data(contentsOf: file) {
+                ImageCache.touch(file)
                 return ImageCache.decode(data, maxPixel: maxPixel)
             }
             guard let data = try? await ImageCache.fetch(url) else { return nil }
@@ -82,7 +83,10 @@ actor ImageCache {
 
     func rawData(for url: URL) async -> Data? {
         let file = fileURL(for: url)
-        if let data = try? Data(contentsOf: file) { return data }
+        if let data = try? Data(contentsOf: file) {
+            ImageCache.touch(file)
+            return data
+        }
         var req = URLRequest(url: url)
         req.setValue(XDHTTP.userAgent, forHTTPHeaderField: "User-Agent")
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
@@ -102,6 +106,33 @@ actor ImageCache {
         try? FileManager.default.removeItem(at: dir)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         memory.removeAllObjects()
+    }
+
+    private static func touch(_ file: URL) {
+        try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: file.path)
+    }
+
+    nonisolated func trimDisk(limitBytes: Int64 = 200 * 1024 * 1024) {
+        let keys: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey]
+        guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: keys) else { return }
+        var entries: [(url: URL, date: Date, size: Int64)] = []
+        var total: Int64 = 0
+        for f in files {
+            let values = try? f.resourceValues(forKeys: Set(keys))
+            let size = Int64(values?.fileSize ?? 0)
+            entries.append((f, values?.contentModificationDate ?? .distantPast, size))
+            total += size
+        }
+        guard total > limitBytes else { return }
+        var removed = 0
+        for entry in entries.sorted(by: { $0.date < $1.date }) {
+            guard total > limitBytes else { break }
+            if (try? FileManager.default.removeItem(at: entry.url)) != nil {
+                total -= entry.size
+                removed += 1
+            }
+        }
+        LaunchLog.mark("图片缓存修剪：删除 \(removed) 个文件，剩余 \(total / 1024 / 1024)MB")
     }
 }
 

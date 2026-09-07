@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 struct BrowseRecord: Codable, Identifiable, Hashable {
     var id: Int
@@ -207,13 +208,28 @@ final class HistoryStore: ObservableObject {
     }
 
     func flush() {
-        if browsingDirty { browseStore.saveNow(browsing); browsingDirty = false }
-        if postsDirty { postStore.saveNow(posts); postsDirty = false }
+        let bg = UIApplication.shared.beginBackgroundTask(expirationHandler: nil)
+        let group = DispatchGroup()
+        if browsingDirty {
+            browsingDirty = false
+            group.enter()
+            browseStore.flushAsync(browsing) { group.leave() }
+        }
+        if postsDirty {
+            postsDirty = false
+            group.enter()
+            postStore.flushAsync(posts) { group.leave() }
+        }
         if progressDirty {
             progressAppends = 0
             progressDirty = false
-            progressDisk.compact(progress)
+            group.enter()
+            progressDisk.compact(progress) { group.leave() }
         }
-        sessionStore.saveNow(lastSession.map { [$0] } ?? [])
+        group.enter()
+        sessionStore.flushAsync(lastSession.map { [$0] } ?? []) { group.leave() }
+        group.notify(queue: .main) {
+            if bg != .invalid { UIApplication.shared.endBackgroundTask(bg) }
+        }
     }
 }

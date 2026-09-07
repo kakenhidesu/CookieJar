@@ -67,8 +67,9 @@ final class ProgressDiskStore {
         }
     }
 
-    func compact(_ entries: [Int: HistoryStore.ReadProgress]) {
+    func compact(_ entries: [Int: HistoryStore.ReadProgress], completion: (() -> Void)? = nil) {
         queue.async {
+            defer { completion?() }
             guard let data = try? Self.makeEncoder().encode(Snapshot(version: 1, entries: entries)) else { return }
             try? data.write(to: self.snapshotURL, options: .atomic)
             try? Data().write(to: self.journalURL, options: .atomic)

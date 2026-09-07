@@ -45,6 +45,14 @@ final class JSONStore<T: Codable> {
         write(value)
     }
 
+    func flushAsync(_ value: T, completion: (() -> Void)? = nil) {
+        pending?.cancel()
+        queue.async { [weak self] in
+            self?.write(value)
+            completion?()
+        }
+    }
+
     private func write(_ value: T) {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .secondsSince1970

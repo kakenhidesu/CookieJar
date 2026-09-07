@@ -110,7 +110,7 @@ final class ThreadViewModel: ObservableObject {
     func noteVisible(_ postId: Int) {
         lastVisibleId = postId
         HistoryStore.shared.noteReading(mainPostId: mainPostId,
-                                        page: currentLastPage,
+                                        page: replyPage[postId] ?? currentLastPage,
                                         postId: postId,
                                         onlyPo: onlyPo)
     }
@@ -307,9 +307,10 @@ struct ThreadScreen: View {
             Task { await vm.reloadLastPage() }
         }
         .onDisappear {
+            let postId = vm.lastVisibleId ?? vm.replies.last?.id
             HistoryStore.shared.saveProgress(mainPostId: mainPostId,
-                                             page: vm.currentLastPage,
-                                             postId: vm.lastVisibleId ?? vm.replies.last?.id)
+                                             page: postId.flatMap { vm.page(of: $0) } ?? vm.currentLastPage,
+                                             postId: postId)
         }
     }
 

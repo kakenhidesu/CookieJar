@@ -42,6 +42,9 @@ struct CookieJarApp: App {
                 await ImageCache.shared.dropMemory()
                 LaunchLog.mark("已释放图片内存，剩 \(LaunchLog.footprintMB)MB")
             }
+            Task.detached(priority: .utility) {
+                ImageCache.shared.trimDisk()
+            }
         }
     }
 
@@ -70,6 +73,9 @@ struct CookieJarApp: App {
         }
 
         Task { await NoticeStore.shared.refresh() }
+        Task.detached(priority: .utility) {
+            ImageCache.shared.trimDisk()
+        }
 
         if forums.forums.isEmpty {
             LaunchLog.mark("forum list begin（无缓存）")

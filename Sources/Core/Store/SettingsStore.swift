@@ -87,9 +87,13 @@ final class SettingsStore: ObservableObject {
         }
     }
 
-    var contentFont: Font { .system(size: 16 * fontScale) }
-    var titleFont: Font { .system(size: 16 * fontScale, weight: .semibold) }
-    var metaFont: Font { .system(size: 12.5 * fontScale) }
+    var contentFontSize: CGFloat { CGFloat(16 * fontScale) }
+    var smallFontSize: CGFloat { CGFloat(13 * fontScale) }
+    var metaFontSize: CGFloat { CGFloat(12.5 * fontScale) }
+    var captionFontSize: CGFloat { CGFloat(11.5 * fontScale) }
+    var contentFont: Font { .system(size: contentFontSize) }
+    var titleFont: Font { .system(size: contentFontSize, weight: .semibold) }
+    var metaFont: Font { .system(size: metaFontSize) }
 
     private init() {
         if feedUUID.isEmpty { feedUUID = UUID().uuidString }

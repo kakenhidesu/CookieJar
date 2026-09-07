@@ -141,7 +141,7 @@ struct FeedScreen: View {
                                 Label(String(post.replyCount ?? 0), systemImage: "bubble.left")
                                 Spacer()
                                 Text(verbatim: "No.\(post.id)")
-                                    .font(.system(size: 11.5 * settings.fontScale, design: .monospaced))
+                                    .font(.system(size: settings.captionFontSize, design: .monospaced))
                                     .foregroundStyle(XDTheme.secondaryText.opacity(0.8))
                             }
                             .font(settings.metaFont)

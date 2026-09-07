@@ -31,7 +31,7 @@ struct SettingsScreen: View {
                     }
                     Slider(value: $settings.fontScale, in: 0.8...1.6, step: 0.05)
                     Text("示例：( ﾟ∀。)7 这是一段正文预览")
-                        .font(.system(size: 16 * settings.fontScale))
+                        .font(settings.contentFont)
                         .lineSpacing(settings.lineSpacing)
                         .foregroundStyle(XDTheme.secondaryText)
                 }
