@@ -16,11 +16,11 @@
       "versions": [
         {
           "version": "1.1",
-          "buildVersion": "1",
-          "date": "2026-09-03",
-          "localizedDescription": "注意：自 beta1.1 起支持的最低系统版本为 iOS 16.4\n\n1. 带图的串文会环绕排版了\n2. 修复了 sage 气泡会被展示版块的彩色 badge 挡住的问题\n3. 修复了解析器导致的多余换行的问题",
-          "downloadURL": "https://github.com/kakenhidesu/CookieJar/releases/download/beta1.1/CookieJar_b1.1_1.ipa",
-          "size": 1882103,
+          "buildVersion": "2",
+          "date": "2026-09-07",
+          "localizedDescription": "注意：自 beta1.1 起支持的最低系统版本为 iOS 16.4\n\n1. 修复了阅读进度在多页加载时记错页码和恢复后定位不到目标回复的问题\n2. 图片缓存 LRU 清理\n3. 后台异步写盘避免主线程卡顿",
+          "downloadURL": "https://github.com/kakenhidesu/CookieJar/releases/download/beta1.1/CookieJar_b1.1_2.ipa",
+          "size": 1897205,
           "minOSVersion": "16.4"
         }
       ]
