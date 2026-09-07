@@ -21,6 +21,7 @@ final class ThreadViewModel: ObservableObject {
 
     let mainPostId: Int
     private(set) var lastVisibleId: Int?
+    private var visibleIds = Set<Int>()
     private var loadedIds = Set<Int>()
     private var replyPage: [Int: Int] = [:]
     private var inflight: Task<Void, Never>?
@@ -41,6 +42,8 @@ final class ThreadViewModel: ObservableObject {
         loadedPages = []
         loadedIds = []
         replyPage = [:]
+        visibleIds = []
+        lastVisibleId = nil
         await load(page: 1, reset: true)
     }
 
@@ -86,6 +89,8 @@ final class ThreadViewModel: ObservableObject {
                 loadedPages = []
                 loadedIds = []
                 replyPage = [:]
+                visibleIds = []
+                lastVisibleId = nil
             }
             let blacklist = BlacklistStore.shared
             let fresh = result.replies.filter { !loadedIds.contains($0.id) && !blacklist.shouldHide($0) }
@@ -108,10 +113,21 @@ final class ThreadViewModel: ObservableObject {
     }
 
     func noteVisible(_ postId: Int) {
-        lastVisibleId = postId
+        visibleIds.insert(postId)
+        updateReadingAnchor()
+    }
+
+    func noteHidden(_ postId: Int) {
+        visibleIds.remove(postId)
+        updateReadingAnchor()
+    }
+
+    private func updateReadingAnchor() {
+        guard let top = replies.first(where: { visibleIds.contains($0.id) }) else { return }
+        lastVisibleId = top.id
         HistoryStore.shared.noteReading(mainPostId: mainPostId,
-                                        page: replyPage[postId] ?? currentLastPage,
-                                        postId: postId,
+                                        page: replyPage[top.id] ?? currentLastPage,
+                                        postId: top.id,
                                         onlyPo: onlyPo)
     }
 
@@ -240,6 +256,7 @@ struct ThreadScreen: View {
                             replyCard(reply)
                                 .id(reply.id)
                                 .onAppear { vm.noteVisible(reply.id) }
+                                .onDisappear { vm.noteHidden(reply.id) }
                                 .task { await vm.loadNextIfNeeded(current: reply) }
                         }
 
@@ -307,10 +324,11 @@ struct ThreadScreen: View {
             Task { await vm.reloadLastPage() }
         }
         .onDisappear {
-            let postId = vm.lastVisibleId ?? vm.replies.last?.id
+            let candidate = vm.lastVisibleId ?? vm.replies.last?.id
+            let page = candidate.flatMap { vm.page(of: $0) }
             HistoryStore.shared.saveProgress(mainPostId: mainPostId,
-                                             page: postId.flatMap { vm.page(of: $0) } ?? vm.currentLastPage,
-                                             postId: postId)
+                                             page: page ?? vm.currentLastPage,
+                                             postId: page == nil ? nil : candidate)
         }
     }
 
