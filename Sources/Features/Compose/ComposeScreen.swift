@@ -20,6 +20,7 @@ struct ComposeScreen: View {
     @State private var showDoodle = false
     @State private var isSending = false
     @State private var draftId: UUID?
+    @State private var restoredTarget: ComposeTarget?
     @State private var showDrafts = false
     @State private var forumId: Int?
     @FocusState private var contentFocused: Bool
@@ -28,15 +29,19 @@ struct ComposeScreen: View {
     @State private var showCustomReason = false
     @State private var customReason = ""
 
+    private var effectiveTarget: ComposeTarget { restoredTarget ?? target }
+
     private var replyTarget: Int? {
-        if case .reply(let mid, _) = target { return mid }
+        if case .reply(let mid, _) = effectiveTarget { return mid }
         return nil
     }
 
-    private var isReport: Bool {
-        if case .report = target { return true }
-        return false
+    private var reportPostId: Int? {
+        if case .report(let pid) = effectiveTarget { return pid }
+        return nil
     }
+
+    private var isReport: Bool { reportPostId != nil }
 
     private var navTitle: String {
         if isReport { return "举报" }
@@ -114,12 +119,9 @@ struct ComposeScreen: View {
             }
             .sheet(isPresented: $showDrafts) {
                 DraftPickerSheet { draft in
-                    saveDraft(explicit: false)
-                    title = draft.title
-                    name = draft.name
-                    content = draft.content
-                    draftId = draft.id
                     showDrafts = false
+                    guard saveDraft(explicit: false) else { return }
+                    apply(draft: draft)
                 }
                 .presentationDetents([.medium, .large])
             }
@@ -312,14 +314,34 @@ struct ComposeScreen: View {
             if let quote { content = quote }
             name = settings.defaultName
         case .draft(let draft):
-            title = draft.title
-            name = draft.name
-            content = draft.content
-            draftId = draft.id
-            forumId = (app.currentIsTimeline || app.currentForumId <= 0) ? nil : app.currentForumId
+            apply(draft: draft)
         case .report(let postId):
             forumId = ReportInfo.dutyRoomForumId
             content = ">>No.\(postId)\n"
+        }
+    }
+
+    private func apply(draft: Draft) {
+        title = draft.title
+        name = draft.name
+        content = draft.content
+        draftId = draft.id
+        if let mid = draft.replyTo {
+            restoredTarget = .reply(mainPostId: mid, quote: nil)
+            forumId = nil
+        } else if let pid = draft.reportPostId {
+            restoredTarget = .report(postId: pid)
+            forumId = ReportInfo.dutyRoomForumId
+            reportReason = draft.reportReason ?? ""
+        } else {
+            restoredTarget = .newThread(forumId: draft.forumId)
+            forumId = draft.forumId ?? ((app.currentIsTimeline || app.currentForumId <= 0) ? nil : app.currentForumId)
+        }
+        if let file = draft.imageFile, let img = DraftStore.shared.loadImage(file) {
+            image = img
+            imageIsPNG = file.hasSuffix(".png")
+        } else {
+            image = nil
         }
     }
 
@@ -327,21 +349,43 @@ struct ComposeScreen: View {
         content += "[h][/h]"
     }
 
-    private func saveDraft(explicit: Bool) {
+    @discardableResult
+    private func saveDraft(explicit: Bool) -> Bool {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty || !title.isEmpty else {
+        guard !trimmed.isEmpty || !title.isEmpty || image != nil else {
             if explicit { Toast.shared.error("草稿是空的") }
-            return
+            return true
         }
         var draft = Draft(title: title, name: name, content: content)
         if let draftId { draft.id = draftId }
+        draft.replyTo = replyTarget
+        draft.reportPostId = reportPostId
+        draft.reportReason = isReport ? reportReason : nil
+        draft.forumId = (replyTarget == nil && !isReport) ? forumId : nil
+        var imageFailed = false
+        if let image {
+            let data = imageIsPNG ? image.pngData() : image.jpegData(compressionQuality: 0.9)
+            if let data, let file = DraftStore.shared.saveImage(data, isPNG: imageIsPNG, for: draft.id) {
+                draft.imageFile = file
+            } else {
+                draft.imageFile = DraftStore.shared.drafts.first(where: { $0.id == draft.id })?.imageFile
+                imageFailed = true
+            }
+        } else {
+            DraftStore.shared.removeImage(for: draft.id)
+        }
         DraftStore.shared.save(draft)
         draftId = draft.id
-        if explicit { Toast.shared.success("已存入草稿箱") }
+        if imageFailed {
+            Toast.shared.error("图片未能写入，文字已保存；请重试或移除图片")
+        } else if explicit {
+            Toast.shared.success("已存入草稿箱")
+        }
+        return !imageFailed
     }
 
     private func closeWithAutosave() {
-        if settings.saveDraftAuto { saveDraft(explicit: false) }
+        if settings.saveDraftAuto, !saveDraft(explicit: false) { return }
         dismiss()
     }
 

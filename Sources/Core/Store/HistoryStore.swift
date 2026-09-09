@@ -171,8 +171,12 @@ final class HistoryStore: ObservableObject {
         postStore.save(posts)
     }
 
-    func clearPosts() {
-        posts = []
+    func clearPosts(kind: PostRecord.Kind? = nil) {
+        if let kind {
+            posts.removeAll { $0.kind == kind }
+        } else {
+            posts = []
+        }
         rebuildMyPostIds()
         postStore.saveNow(posts)
     }

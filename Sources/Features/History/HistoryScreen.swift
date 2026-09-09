@@ -76,7 +76,11 @@ struct HistoryScreen: View {
         }
         .confirmationDialog("确定要清空吗？", isPresented: $showClearConfirm, titleVisibility: .visible) {
             Button("清空\(segmentName)记录", role: .destructive) {
-                if segment == 0 { history.clearBrowsing() } else { history.clearPosts() }
+                if segment == 0 {
+                    history.clearBrowsing()
+                } else {
+                    history.clearPosts(kind: segment == 1 ? .thread : .reply)
+                }
                 Toast.shared.show("已清空")
             }
             Button("取消", role: .cancel) {}
