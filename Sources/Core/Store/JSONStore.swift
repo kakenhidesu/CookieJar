@@ -35,14 +35,20 @@ final class JSONStore<T: Codable> {
 
     func save(_ value: T) {
         pending?.cancel()
-        let item = DispatchWorkItem { [weak self] in self?.write(value) }
+        let item = DispatchWorkItem { [weak self] in _ = self?.write(value) }
         pending = item
         queue.asyncAfter(deadline: .now() + 0.4, execute: item)
     }
 
     func saveNow(_ value: T) {
         pending?.cancel()
-        write(value)
+        queue.sync { write(value) }
+    }
+
+    @discardableResult
+    func saveNowChecked(_ value: T) -> Bool {
+        pending?.cancel()
+        return queue.sync { write(value) }
     }
 
     func flushAsync(_ value: T, completion: (() -> Void)? = nil) {
@@ -53,10 +59,11 @@ final class JSONStore<T: Codable> {
         }
     }
 
-    private func write(_ value: T) {
+    @discardableResult
+    private func write(_ value: T) -> Bool {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .secondsSince1970
-        guard let data = try? encoder.encode(value) else { return }
-        try? data.write(to: url, options: .atomic)
+        guard let data = try? encoder.encode(value) else { return false }
+        return (try? data.write(to: url, options: .atomic)) != nil
     }
 }

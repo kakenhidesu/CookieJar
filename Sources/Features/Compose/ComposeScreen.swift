@@ -21,6 +21,7 @@ struct ComposeScreen: View {
     @State private var isSending = false
     @State private var draftId: UUID?
     @State private var restoredTarget: ComposeTarget?
+    @State private var dismissHandled = false
     @State private var showDrafts = false
     @State private var forumId: Int?
     @FocusState private var contentFocused: Bool
@@ -144,6 +145,17 @@ struct ComposeScreen: View {
             .onAppear(perform: prefill)
         }
         .interactiveDismissDisabled(isSending)
+        .background(SheetDismissGuard {
+            guard settings.saveDraftAuto else { return true }
+            let saved = saveDraft(explicit: false)
+            if saved { dismissHandled = true }
+            return saved
+        })
+        .overlay { ToastOverlay() }
+        .onDisappear {
+            guard !dismissHandled, !showDoodle, settings.saveDraftAuto else { return }
+            saveDraft(explicit: false)
+        }
     }
 
     @ViewBuilder
@@ -371,21 +383,22 @@ struct ComposeScreen: View {
                 draft.imageFile = DraftStore.shared.drafts.first(where: { $0.id == draft.id })?.imageFile
                 imageFailed = true
             }
-        } else {
-            DraftStore.shared.removeImage(for: draft.id)
         }
-        DraftStore.shared.save(draft)
+        let stored = DraftStore.shared.save(draft)
         draftId = draft.id
-        if imageFailed {
+        if !stored {
+            Toast.shared.error("草稿未能写入，请重试")
+        } else if imageFailed {
             Toast.shared.error("图片未能写入，文字已保存；请重试或移除图片")
         } else if explicit {
             Toast.shared.success("已存入草稿箱")
         }
-        return !imageFailed
+        return stored && !imageFailed
     }
 
     private func closeWithAutosave() {
         if settings.saveDraftAuto, !saveDraft(explicit: false) { return }
+        dismissHandled = true
         dismiss()
     }
 
@@ -462,6 +475,7 @@ struct ComposeScreen: View {
                 DraftStore.shared.remove(d)
             }
             Toast.shared.success("发送成功")
+            dismissHandled = true
             dismiss()
         } catch {
             Toast.shared.error(error)
@@ -599,5 +613,61 @@ struct DraftPickerSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
             }
         }
+    }
+}
+
+private struct SheetDismissGuard: UIViewControllerRepresentable {
+    var shouldDismiss: () -> Bool
+
+    func makeUIViewController(context: Context) -> GuardController {
+        let controller = GuardController()
+        controller.proxy.shouldDismiss = shouldDismiss
+        return controller
+    }
+
+    func updateUIViewController(_ controller: GuardController, context: Context) {
+        controller.proxy.shouldDismiss = shouldDismiss
+        controller.install()
+    }
+
+    final class GuardController: UIViewController {
+        let proxy = DismissProxy()
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            install()
+        }
+
+        func install() {
+            var root: UIViewController = self
+            while let parent = root.parent { root = parent }
+            guard root.presentingViewController != nil,
+                  let presentation = root.presentationController else {
+                LaunchLog.mark("发串页关闭拦截：未找到弹窗控制器")
+                return
+            }
+            guard presentation.delegate !== proxy else { return }
+            proxy.original = presentation.delegate
+            presentation.delegate = proxy
+            LaunchLog.mark("发串页关闭拦截已安装")
+        }
+    }
+}
+
+private final class DismissProxy: NSObject, UIAdaptivePresentationControllerDelegate {
+    weak var original: UIAdaptivePresentationControllerDelegate?
+    var shouldDismiss: () -> Bool = { true }
+
+    func presentationControllerShouldDismiss(_ presentationController: UIPresentationController) -> Bool {
+        if original?.presentationControllerShouldDismiss?(presentationController) == false { return false }
+        return shouldDismiss()
+    }
+
+    override func responds(to aSelector: Selector!) -> Bool {
+        super.responds(to: aSelector) || (original?.responds(to: aSelector) ?? false)
+    }
+
+    override func forwardingTarget(for aSelector: Selector!) -> Any? {
+        original?.responds(to: aSelector) == true ? original : nil
     }
 }

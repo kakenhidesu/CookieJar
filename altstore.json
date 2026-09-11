@@ -16,11 +16,11 @@
       "versions": [
         {
           "version": "1.1",
-          "buildVersion": "3",
-          "date": "2026-09-09",
-          "localizedDescription": "注意：自 beta1.1 起支持的最低系统版本为 iOS 16.4\n\n1. 修复了清空发串记录或回复记录会把两类记录一起删掉的问题\n2. 草稿现在会完整保存发串版块、回复目标、举报理由和图片（若有）\n3. 修复了重新打开草稿后变成向当前版块发新串的问题\n4. 只有图片的草稿也能保存了！",
-          "downloadURL": "https://github.com/kakenhidesu/CookieJar/releases/download/beta1.1/CookieJar_b1.1_3.ipa",
-          "size": 1906666,
+          "buildVersion": "4",
+          "date": "2026-09-11",
+          "localizedDescription": "注意：自 beta1.1 起支持的最低系统版本为 iOS 16.4\n\n1. 历史记录里的回复现在会直接定位到那条回复\n2. 修复了「我的 → 发串记录」的计数错误\n3. 下滑关闭编辑页时会自动保存草稿 :D",
+          "downloadURL": "https://github.com/kakenhidesu/CookieJar/releases/download/beta1.1/CookieJar_b1.1_4.ipa",
+          "size": 1921313,
           "minOSVersion": "16.4"
         }
       ]

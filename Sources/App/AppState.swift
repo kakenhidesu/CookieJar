@@ -42,6 +42,7 @@ final class AppState: ObservableObject {
     @Published var referencePostId: Int?
     @Published var imageViewer: ImageViewerPayload?
     @Published var compose: ComposeTarget?
+    @Published var historySegmentRequest: Int?
 
     struct ThreadJump: Equatable {
         var threadId: Int

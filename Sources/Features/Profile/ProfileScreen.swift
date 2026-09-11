@@ -44,7 +44,10 @@ struct ProfileScreen: View {
 
             Section {
                 row("草稿箱", icon: "doc.text", count: drafts.drafts.count) { app.push(.drafts) }
-                row("发串记录", icon: "square.and.pencil", count: history.posts.count) {
+                row("发串记录", icon: "square.and.pencil",
+                    count: history.posts.filter { $0.kind == .thread }.count) {
+                    app.historySegmentRequest = 1
+                    app.popToRoot(.history)
                     app.tab = .history
                 }
                 row("黑名单", icon: "hand.raised", count: nil) { app.push(.blacklist) }

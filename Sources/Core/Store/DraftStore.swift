@@ -28,7 +28,8 @@ final class DraftStore: ObservableObject {
 
     private init() { drafts = store.load() ?? [] }
 
-    func save(_ draft: Draft) {
+    @discardableResult
+    func save(_ draft: Draft) -> Bool {
         var d = draft
         d.updatedAt = Date()
         if let idx = drafts.firstIndex(where: { $0.id == d.id }) {
@@ -37,7 +38,17 @@ final class DraftStore: ObservableObject {
             drafts.insert(d, at: 0)
         }
         if drafts.count > 200 { drafts = Array(drafts.prefix(200)) }
-        store.save(drafts)
+        guard store.saveNowChecked(drafts) else { return false }
+        pruneImages(for: d.id, keeping: d.imageFile)
+        return true
+    }
+
+    private func pruneImages(for draftId: UUID, keeping: String?) {
+        for ext in ["png", "jpg"] {
+            let name = draftId.uuidString + "." + ext
+            if name == keeping { continue }
+            try? FileManager.default.removeItem(at: Self.imageDir.appendingPathComponent(name))
+        }
     }
 
     func remove(_ draft: Draft) {
@@ -65,8 +76,6 @@ final class DraftStore: ObservableObject {
     func saveImage(_ data: Data, isPNG: Bool, for draftId: UUID) -> String? {
         let name = draftId.uuidString + (isPNG ? ".png" : ".jpg")
         guard (try? data.write(to: Self.imageDir.appendingPathComponent(name), options: .atomic)) != nil else { return nil }
-        let stale = draftId.uuidString + (isPNG ? ".jpg" : ".png")
-        try? FileManager.default.removeItem(at: Self.imageDir.appendingPathComponent(stale))
         return name
     }
 

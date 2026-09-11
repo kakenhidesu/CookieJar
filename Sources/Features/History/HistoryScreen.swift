@@ -6,6 +6,12 @@ struct HistoryScreen: View {
     @ObservedObject private var history = HistoryStore.shared
     @State private var segment = 0
 
+    private func consumeSegmentRequest() {
+        guard let requested = app.historySegmentRequest else { return }
+        segment = requested
+        app.historySegmentRequest = nil
+    }
+
     private var segmentName: String {
         switch segment {
         case 0: return "浏览"
@@ -74,6 +80,8 @@ struct HistoryScreen: View {
                 } label: { Image(systemName: "trash") }
             }
         }
+        .onAppear { consumeSegmentRequest() }
+        .onChange(of: app.historySegmentRequest) { _ in consumeSegmentRequest() }
         .confirmationDialog("确定要清空吗？", isPresented: $showClearConfirm, titleVisibility: .visible) {
             Button("清空\(segmentName)记录", role: .destructive) {
                 if segment == 0 {
@@ -165,7 +173,8 @@ struct HistoryScreen: View {
                     ForEach(filteredPosts) { record in
                         Button {
                             let target = record.kind == .thread ? record.id : (record.mainPostId ?? record.id)
-                            if target > 0 { app.openThread(target) }
+                            let jump = (record.kind == .reply && record.id > 0 && record.id != target) ? record.id : nil
+                            if target > 0 { app.openThread(target, jumpTo: jump) }
                         } label: {
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {

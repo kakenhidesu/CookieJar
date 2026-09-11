@@ -317,6 +317,12 @@ struct ThreadScreen: View {
                 HistoryStore.shared.noteReading(mainPostId: mainPostId, page: start,
                                                 postId: target, onlyPo: onlyPo)
                 await vm.openPage(start)
+                if let jumpToPostId, jumpToPostId != mainPostId,
+                   !vm.replies.contains(where: { $0.id == jumpToPostId }),
+                   let page = try? await XDAPI.shared.locateReply(jumpToPostId, in: mainPostId,
+                                                                  cookie: CookieStore.shared.cookieValue) {
+                    await vm.openPage(page, anchorPostId: jumpToPostId)
+                }
                 initialLoadDone = true
             }
         }
