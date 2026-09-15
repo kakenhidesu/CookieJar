@@ -407,6 +407,7 @@ struct ComposeScreen: View {
             Toast.shared.error("请先添加并选择饼干")
             return
         }
+        let sendingHash = cookies.selected?.userHash ?? ""
         let mainPostId = replyTarget
         guard mainPostId != nil || forumId != nil else {
             Toast.shared.error("请先在顶部选择要发到哪个版块")
@@ -430,56 +431,65 @@ struct ComposeScreen: View {
             }
         }
 
-        let createdAt = Date()
+        let record = PostRecord(status: .accepted,
+                                kind: mainPostId == nil ? .thread : .reply,
+                                mainPostId: mainPostId,
+                                forumId: forumId,
+                                title: title,
+                                content: body,
+                                userHash: sendingHash,
+                                hasImage: payload != nil,
+                                createdAt: Date())
+        let outcome: SubmitOutcome
         do {
             if let mainPostId {
-                try await XDAPI.shared.replyThread(mainPostId: mainPostId,
-                                                   content: body,
-                                                   name: name.isEmpty ? nil : name,
-                                                   title: title.isEmpty ? nil : title,
-                                                   watermark: settings.watermark,
-                                                   image: payload,
-                                                   cookie: cookie)
-            } else if let forumId {
-                try await XDAPI.shared.postThread(forumId: forumId,
-                                                  content: body,
-                                                  name: name.isEmpty ? nil : name,
-                                                  title: title.isEmpty ? nil : title,
-                                                  watermark: settings.watermark,
-                                                  image: payload,
-                                                  cookie: cookie)
-            }
-
-            HistoryStore.shared.recordPost(PostRecord(id: -Int(createdAt.timeIntervalSince1970),
-                                                      kind: mainPostId == nil ? .thread : .reply,
-                                                      mainPostId: mainPostId,
-                                                      forumId: forumId,
-                                                      title: title,
-                                                      content: body,
-                                                      userHash: cookies.selected?.userHash ?? "",
-                                                      hasImage: payload != nil,
-                                                      createdAt: createdAt))
-
-            if let last = try? await XDAPI.shared.lastPost(cookie: cookie), last.id > 0 {
-                HistoryStore.shared.fillLastPostId(last.id, for: createdAt)
-                cookies.recordDisplayId(last.userHash)
-            }
-
-            if let mainPostId {
-                AppState.shared.noteReplyPosted(mainPostId: mainPostId)
+                outcome = try await XDAPI.shared.replyThread(mainPostId: mainPostId,
+                                                             content: body,
+                                                             name: name.isEmpty ? nil : name,
+                                                             title: title.isEmpty ? nil : title,
+                                                             watermark: settings.watermark,
+                                                             image: payload,
+                                                             cookie: cookie)
             } else {
-                AppState.shared.noteThreadPosted()
+                outcome = try await XDAPI.shared.postThread(forumId: forumId ?? 0,
+                                                            content: body,
+                                                            name: name.isEmpty ? nil : name,
+                                                            title: title.isEmpty ? nil : title,
+                                                            watermark: settings.watermark,
+                                                            image: payload,
+                                                            cookie: cookie)
             }
+        } catch {
+            Toast.shared.error(error)
+            return
+        }
 
+        var sent = record
+        if outcome == .unknown { sent.status = .resultUnknown }
+        HistoryStore.shared.recordPost(sent)
+
+        Task { @MainActor in
+            if let last = try? await XDAPI.shared.lastPost(cookie: cookie), !last.userHash.isEmpty {
+                CookieStore.shared.recordDisplayId(last.userHash, for: sendingHash)
+            }
+        }
+
+        if let mainPostId {
+            AppState.shared.noteReplyPosted(mainPostId: mainPostId)
+        } else {
+            AppState.shared.noteThreadPosted()
+        }
+
+        if outcome == .accepted {
             if let draftId, let d = DraftStore.shared.drafts.first(where: { $0.id == draftId }) {
                 DraftStore.shared.remove(d)
             }
             Toast.shared.success("发送成功")
-            dismissHandled = true
-            dismiss()
-        } catch {
-            Toast.shared.error(error)
+        } else {
+            Toast.shared.error("服务器未返回明确结果，可能已经发出；请先到串里确认，避免重复发送")
         }
+        dismissHandled = true
+        dismiss()
     }
 }
 

@@ -121,6 +121,7 @@ struct CookieScreen: View {
     private func importCookie(_ c: XDCookie) {
         let added = cookies.add(c)
         Toast.shared.success(added ? "已添加饼干 \(c.name)" : "饼干已存在，已更新")
+        Task { await cookies.syncDisplayIds(force: true) }
     }
 }
 
@@ -474,6 +475,7 @@ struct LoginSheet: View {
             _ = cookies.add(cookie)
             remoteNames[id] = cookie.name
             Toast.shared.success("已导入 \(cookie.name)")
+            Task { await cookies.syncDisplayIds(force: true) }
         } catch {
             Toast.shared.error(error)
         }

@@ -7,7 +7,7 @@ enum AppInfo {
     }
 
     static var version: String {
-        let build = plist("CFBundleVersion", "4")
+        let build = plist("CFBundleVersion", "5")
         let base = "beta\(plist("CFBundleShortVersionString", "1.1"))"
         return build == "0" ? base : "\(base)_\(build)"
     }

@@ -64,9 +64,14 @@ final class CookieStore: ObservableObject {
     }
 
     func recordDisplayId(_ displayId: String) {
+        guard let hash = selected?.userHash else { return }
+        recordDisplayId(displayId, for: hash)
+    }
+
+    func recordDisplayId(_ displayId: String, for cookieHash: String) {
         let id = displayId.trimmingCharacters(in: .whitespaces)
-        guard !id.isEmpty, let hash = selected?.userHash,
-              let idx = cookies.firstIndex(where: { $0.userHash == hash }) else { return }
+        guard !id.isEmpty,
+              let idx = cookies.firstIndex(where: { $0.userHash == cookieHash }) else { return }
         var ids = cookies[idx].displayIds ?? []
         guard !ids.contains(id) else { return }
         ids.append(id)
@@ -77,7 +82,42 @@ final class CookieStore: ObservableObject {
 
     func isMine(displayId: String) -> Bool {
         guard !displayId.isEmpty else { return false }
-        return selected?.displayIds?.contains(displayId) ?? false
+        return cookies.contains { $0.displayIds?.contains(displayId) ?? false }
+    }
+
+    private var lastDisplayIdSync: Date?
+    private var displayIdSyncTask: Task<Void, Never>?
+    private var displayIdSyncRerun = false
+
+    @MainActor
+    func syncDisplayIds(force: Bool = false) async {
+        if let running = displayIdSyncTask {
+            if force { displayIdSyncRerun = true }
+            await running.value
+            return
+        }
+        if !force, let last = lastDisplayIdSync, Date().timeIntervalSince(last) < 300 { return }
+        let task = Task { @MainActor in
+            repeat {
+                displayIdSyncRerun = false
+                let snapshot = cookies
+                var allSucceeded = true
+                for cookie in snapshot {
+                    do {
+                        if let post = try await XDAPI.shared.lastPost(cookie: cookie.cookieValue), !post.userHash.isEmpty {
+                            recordDisplayId(post.userHash, for: cookie.userHash)
+                        }
+                    } catch {
+                        allSucceeded = false
+                        LaunchLog.mark("显示 ID 同步失败（\(cookie.name)）：\(error.localizedDescription)")
+                    }
+                }
+                if allSucceeded { lastDisplayIdSync = Date() }
+            } while displayIdSyncRerun
+        }
+        displayIdSyncTask = task
+        await task.value
+        displayIdSyncTask = nil
     }
 
     func move(from source: IndexSet, to destination: Int) {

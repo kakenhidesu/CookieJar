@@ -36,6 +36,9 @@ struct CookieJarApp: App {
         }
         .onChange(of: scenePhase) { phase in
             LaunchLog.mark("scenePhase \(phase)（Tab \(app.tab)，内存 \(LaunchLog.footprintMB)MB）")
+            if phase == .active {
+                Task { await CookieStore.shared.syncDisplayIds() }
+            }
             guard phase == .background else { return }
             HistoryStore.shared.flush()
             Task {
@@ -59,6 +62,7 @@ struct CookieJarApp: App {
 
         LaunchLog.mark("bootstrap start（饼干 \(cookies.hasCookie ? "有" : "无")）")
         settings.applyToNetwork()
+        Task { await CookieStore.shared.syncDisplayIds() }
 
         if let session = HistoryStore.shared.lastSession, app.restoreLastThreadIfNeeded() {
             LaunchLog.mark("恢复到上次的串 No.\(session.mainPostId) 第 \(session.page) 页")

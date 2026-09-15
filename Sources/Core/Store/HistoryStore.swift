@@ -18,7 +18,11 @@ struct BrowseRecord: Codable, Identifiable, Hashable {
 
 struct PostRecord: Codable, Identifiable, Hashable {
     enum Kind: String, Codable { case thread, reply }
-    var id: Int
+    enum SendStatus: String, Codable { case accepted, resultUnknown, legacy }
+
+    var id: UUID
+    var postId: Int?
+    var status: SendStatus
     var kind: Kind
     var mainPostId: Int?
     var forumId: Int?
@@ -27,6 +31,52 @@ struct PostRecord: Codable, Identifiable, Hashable {
     var userHash: String
     var hasImage: Bool
     var createdAt: Date
+
+    init(id: UUID = UUID(), postId: Int? = nil, status: SendStatus, kind: Kind,
+         mainPostId: Int?, forumId: Int?, title: String, content: String,
+         userHash: String, hasImage: Bool, createdAt: Date) {
+        self.id = id
+        self.postId = postId
+        self.status = status
+        self.kind = kind
+        self.mainPostId = mainPostId
+        self.forumId = forumId
+        self.title = title
+        self.content = content
+        self.userHash = userHash
+        self.hasImage = hasImage
+        self.createdAt = createdAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id = "localId", postId, status, kind, mainPostId, forumId, title, content, userHash, hasImage, createdAt
+    }
+
+    private enum LegacyKeys: String, CodingKey {
+        case id
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try c.decode(Kind.self, forKey: .kind)
+        mainPostId = try c.decodeIfPresent(Int.self, forKey: .mainPostId)
+        forumId = try c.decodeIfPresent(Int.self, forKey: .forumId)
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        content = try c.decodeIfPresent(String.self, forKey: .content) ?? ""
+        userHash = try c.decodeIfPresent(String.self, forKey: .userHash) ?? ""
+        hasImage = try c.decodeIfPresent(Bool.self, forKey: .hasImage) ?? false
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        if let localId = try c.decodeIfPresent(UUID.self, forKey: .id) {
+            id = localId
+            postId = try c.decodeIfPresent(Int.self, forKey: .postId)
+            status = (try? c.decodeIfPresent(SendStatus.self, forKey: .status)) ?? .legacy
+        } else {
+            let legacyId = (try? decoder.container(keyedBy: LegacyKeys.self).decodeIfPresent(Int.self, forKey: .id)) ?? 0
+            id = UUID()
+            postId = legacyId > 0 ? legacyId : nil
+            status = .legacy
+        }
+    }
 }
 
 struct LastReadSession: Codable, Hashable {
@@ -71,7 +121,10 @@ final class HistoryStore: ObservableObject {
         progress = progressDisk.load()
         lastSession = sessionStore.load()?.first
         regroupBrowsing()
-        rebuildMyPostIds()
+        if !posts.isEmpty, let raw = try? Data(contentsOf: AppPaths.file("posts.json")),
+           raw.range(of: Data("\"localId\"".utf8)) == nil {
+            postStore.saveNow(posts)
+        }
         if progressDisk.loadedJournalLines > 0 {
             progressDisk.compact(progress)
         }
@@ -138,35 +191,17 @@ final class HistoryStore: ObservableObject {
         browseStore.saveNow(browsing)
     }
 
-    var myPostIds: Set<Int> { Set(posts.map(\.id).filter { $0 > 0 }) }
-
-    func isMyPost(id: Int) -> Bool { myPostIdCache.contains(id) }
-    private var myPostIdCache: Set<Int> = []
-
-    private func rebuildMyPostIds() {
-        myPostIdCache = myPostIds
-    }
-
     func recordPost(_ record: PostRecord) {
-        posts.insert(record, at: 0)
-        rebuildMyPostIds()
+        guard !posts.contains(where: { $0.id == record.id }) else { return }
+        let idx = posts.firstIndex(where: { $0.createdAt < record.createdAt }) ?? posts.count
+        posts.insert(record, at: idx)
         if posts.count > 500 { posts = Array(posts.prefix(500)) }
         postsDirty = true
         postStore.save(posts)
     }
 
-    func fillLastPostId(_ id: Int, for createdAt: Date) {
-        guard let idx = posts.firstIndex(where: { $0.createdAt == createdAt }) else { return }
-        posts[idx].id = id
-        if posts[idx].kind == .thread { posts[idx].mainPostId = id }
-        rebuildMyPostIds()
-        postsDirty = true
-        postStore.save(posts)
-    }
-
-    func removePost(id: Int) {
-        posts.removeAll { $0.id == id }
-        rebuildMyPostIds()
+    func removePost(localId: UUID) {
+        posts.removeAll { $0.id == localId }
         postsDirty = true
         postStore.save(posts)
     }
@@ -177,7 +212,6 @@ final class HistoryStore: ObservableObject {
         } else {
             posts = []
         }
-        rebuildMyPostIds()
         postStore.saveNow(posts)
     }
 

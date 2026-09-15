@@ -1,5 +1,10 @@
 import Foundation
 
+enum SubmitOutcome {
+    case accepted
+    case unknown
+}
+
 struct XDAPI {
     static let shared = XDAPI()
 
@@ -203,27 +208,29 @@ struct XDAPI {
         try HTMLScrape.checkResult(data.utf8String)
     }
 
+    @discardableResult
     func postThread(forumId: Int,
                     content: String,
                     name: String? = nil,
                     title: String? = nil,
                     watermark: Bool = false,
                     image: XDImagePayload? = nil,
-                    cookie: String) async throws {
+                    cookie: String) async throws -> SubmitOutcome {
         guard forumId > 0 else { throw XDError.api("版块 ID 要大于 0") }
-        try await submit(url: urls.postThreadURL, target: ("fid", forumId), content: content,
+        return try await submit(url: urls.postThreadURL, target: ("fid", forumId), content: content,
                          name: name, title: title, watermark: watermark, image: image, cookie: cookie)
     }
 
+    @discardableResult
     func replyThread(mainPostId: Int,
                      content: String,
                      name: String? = nil,
                      title: String? = nil,
                      watermark: Bool = false,
                      image: XDImagePayload? = nil,
-                     cookie: String) async throws {
+                     cookie: String) async throws -> SubmitOutcome {
         guard mainPostId > 0 else { throw XDError.api("主串 ID 要大于 0") }
-        try await submit(url: urls.replyThreadURL, target: ("resto", mainPostId), content: content,
+        return try await submit(url: urls.replyThreadURL, target: ("resto", mainPostId), content: content,
                          name: name, title: title, watermark: watermark, image: image, cookie: cookie)
     }
 
@@ -234,7 +241,7 @@ struct XDAPI {
                         title: String?,
                         watermark: Bool,
                         image: XDImagePayload?,
-                        cookie: String) async throws {
+                        cookie: String) async throws -> SubmitOutcome {
         guard !content.isEmpty || image != nil else { throw XDError.api("不发图时串的内容不能为空") }
 
         var mp = Multipart()
@@ -246,7 +253,7 @@ struct XDAPI {
         if let image { mp.addFile("image", data: image.data, filename: image.filename, mime: image.mime) }
 
         let data = try await http.postMultipart(url, multipart: mp, cookie: cookie)
-        try HTMLScrape.checkResult(data.utf8String)
+        return try HTMLScrape.checkResult(data.utf8String) == nil ? .unknown : .accepted
     }
 
     func lastPost(cookie: String) async throws -> XDPost? {

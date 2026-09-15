@@ -32,6 +32,7 @@ final class ThreadListViewModel: ObservableObject {
     }
 
     func refresh(showBanner: Bool = false) async {
+        Task { await CookieStore.shared.syncDisplayIds(force: true) }
         await inflight?.value
         isRefreshing = true
         showRefreshBanner = showBanner

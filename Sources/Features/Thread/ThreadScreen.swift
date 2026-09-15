@@ -48,6 +48,7 @@ final class ThreadViewModel: ObservableObject {
     }
 
     func refreshCurrentPage() async {
+        Task { await CookieStore.shared.syncDisplayIds(force: true) }
         await inflight?.value
         await load(page: currentFirstPage, reset: true)
     }
@@ -58,6 +59,7 @@ final class ThreadViewModel: ObservableObject {
     }
 
     func refreshLastPage() async {
+        Task { await CookieStore.shared.syncDisplayIds(force: true) }
         let before = replies.count
         await reloadLastPage()
         if replies.count == before && error == nil {

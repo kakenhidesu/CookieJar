@@ -20,6 +20,7 @@ struct HistoryScreen: View {
         }
     }
     @State private var showClearConfirm = false
+    @State private var legacyThread: PostRecord?
     @State private var query = ""
 
     private var trimmedQuery: String {
@@ -49,7 +50,7 @@ struct HistoryScreen: View {
         return base.filter {
             $0.title.localizedCaseInsensitiveContains(q)
                 || $0.content.localizedCaseInsensitiveContains(q)
-                || "\($0.id)".contains(q)
+                || ($0.postId.map { "\($0)" } ?? "").contains(q)
         }
     }
 
@@ -159,6 +160,37 @@ struct HistoryScreen: View {
         .padding(.vertical, 3)
     }
 
+    private func openPost(_ record: PostRecord) {
+        switch record.kind {
+        case .reply:
+            if let main = record.mainPostId, main > 0 { app.openThread(main) }
+        case .thread:
+            if record.status == .legacy, record.postId != nil {
+                legacyThread = record
+            } else {
+                Toast.shared.show("新串编号未确认，无法直接打开")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func postIdLabel(_ record: PostRecord) -> some View {
+        switch record.status {
+        case .accepted:
+            Text("编号未确认")
+                .font(.system(size: 11))
+                .foregroundStyle(XDTheme.secondaryText)
+        case .resultUnknown:
+            Text("发送结果未知")
+                .font(.system(size: 11))
+                .foregroundStyle(XDTheme.admin)
+        case .legacy:
+            Text(verbatim: record.postId.map { "No.\($0) · 旧版推断" } ?? "编号未确认")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(XDTheme.secondaryText)
+        }
+    }
+
     private var postList: some View {
         Group {
             if filteredPosts.isEmpty && trimmedQuery.isEmpty {
@@ -172,18 +204,12 @@ struct HistoryScreen: View {
                 List {
                     ForEach(filteredPosts) { record in
                         Button {
-                            let target = record.kind == .thread ? record.id : (record.mainPostId ?? record.id)
-                            let jump = (record.kind == .reply && record.id > 0 && record.id != target) ? record.id : nil
-                            if target > 0 { app.openThread(target, jumpTo: jump) }
+                            openPost(record)
                         } label: {
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
                                     XDBadge(text: record.kind == .thread ? "发串" : "回复", color: XDTheme.link)
-                                    if record.id > 0 {
-                                        Text(verbatim: "No.\(record.id)")
-                                            .font(.system(size: 11, design: .monospaced))
-                                            .foregroundStyle(XDTheme.secondaryText)
-                                    }
+                                    postIdLabel(record)
                                     if record.hasImage {
                                         Image(systemName: "photo").font(.system(size: 10))
                                             .foregroundStyle(XDTheme.secondaryText)
@@ -209,13 +235,27 @@ struct HistoryScreen: View {
                             } label: { Label("复制", systemImage: "doc.on.doc") }
                             .tint(.blue)
                             Button(role: .destructive) {
-                                history.removePost(id: record.id)
+                                history.removePost(localId: record.id)
                             } label: { Label("删除", systemImage: "trash") }
                         }
                     }
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
+                .confirmationDialog("编号未经确认",
+                                    isPresented: Binding(get: { legacyThread != nil },
+                                                         set: { if !$0 { legacyThread = nil } }),
+                                    titleVisibility: .visible,
+                                    presenting: legacyThread) { record in
+                    Button {
+                        if let pid = record.postId { app.openThread(pid) }
+                    } label: {
+                        Text(verbatim: "仍要打开 No.\(record.postId ?? 0)")
+                    }
+                    Button("取消", role: .cancel) {}
+                } message: { _ in
+                    Text("这个编号是旧版本在发送后推断的，可能不是这条发言。")
+                }
             }
         }
     }

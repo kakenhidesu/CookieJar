@@ -9,6 +9,9 @@ struct RootView: View {
         Binding(
             get: { app.tab },
             set: { newTab in
+                if newTab == .forums {
+                    Task { await CookieStore.shared.syncDisplayIds(force: true) }
+                }
                 if newTab == app.tab {
                     app.reselect(newTab)
                 } else {
