@@ -167,6 +167,9 @@ struct HistoryScreen: View {
         case .thread:
             if record.status == .legacy, record.postId != nil {
                 legacyThread = record
+            } else if let fid = record.forumId, fid > 0 {
+                app.openForum(id: fid, isTimeline: false)
+                Toast.shared.show("新串编号未确认，已打开所在版块")
             } else {
                 Toast.shared.show("新串编号未确认，无法直接打开")
             }

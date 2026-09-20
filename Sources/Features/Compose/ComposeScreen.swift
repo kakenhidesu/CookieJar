@@ -468,11 +468,7 @@ struct ComposeScreen: View {
         if outcome == .unknown { sent.status = .resultUnknown }
         HistoryStore.shared.recordPost(sent)
 
-        Task { @MainActor in
-            if let last = try? await XDAPI.shared.lastPost(cookie: cookie), !last.userHash.isEmpty {
-                CookieStore.shared.recordDisplayId(last.userHash, for: sendingHash)
-            }
-        }
+        Task { await CookieStore.shared.learnDisplayId(for: sendingHash, cookieValue: cookie) }
 
         if let mainPostId {
             AppState.shared.noteReplyPosted(mainPostId: mainPostId)

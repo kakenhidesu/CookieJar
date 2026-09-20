@@ -91,17 +91,24 @@ actor XDHTTP {
         session = XDHTTP.makeSession(timeout: max(5, min(60, seconds)))
     }
 
+    private static func usesSession(_ url: URL) -> Bool {
+        url.path.hasPrefix("/Member/")
+    }
+
     private func cookieHeader(for url: URL, cookie: String?) -> String? {
         var parts: [String] = []
         if let cookie, !cookie.isEmpty { parts.append(cookie) }
-        let urls = XDURLs.shared
-        if urls.isBase(url), let s = phpSessionID { parts.append(s) }
-        if urls.isBackup(url), let s = backupPhpSessionID { parts.append(s) }
+        if XDHTTP.usesSession(url) {
+            let urls = XDURLs.shared
+            if urls.isBase(url), let s = phpSessionID { parts.append(s) }
+            if urls.isBackup(url), let s = backupPhpSessionID { parts.append(s) }
+        }
         return parts.isEmpty ? nil : parts.joined(separator: "; ")
     }
 
     private func harvest(_ response: URLResponse, requestURL: URL) {
-        guard let http = response as? HTTPURLResponse,
+        guard XDHTTP.usesSession(requestURL),
+              let http = response as? HTTPURLResponse,
               let setCookie = http.value(forHTTPHeaderField: "Set-Cookie") else { return }
         let urls = XDURLs.shared
         for chunk in setCookie.components(separatedBy: ",") {

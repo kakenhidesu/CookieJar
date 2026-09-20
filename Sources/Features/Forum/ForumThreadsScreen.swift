@@ -113,6 +113,7 @@ struct ForumThreadsScreen: View {
     @EnvironmentObject private var app: AppState
     @EnvironmentObject private var forums: ForumStore
     @EnvironmentObject private var settings: SettingsStore
+    @EnvironmentObject private var cookies: CookieStore
     @StateObject private var vm = ThreadListViewModel()
     @State private var showForumPicker = false
     @State private var showForumInfo = false
@@ -159,6 +160,9 @@ struct ForumThreadsScreen: View {
                     .id("top")
                 }
                 .refreshable { await vm.refresh() }
+                .onChange(of: cookies.selected?.userHash) { _ in
+                    Task { await vm.refresh() }
+                }
                 .onChange(of: app.refreshTick[.forums] ?? 0) { _ in
                     guard isRoot else { return }
                     withAnimation { proxy.scrollTo("top", anchor: .top) }

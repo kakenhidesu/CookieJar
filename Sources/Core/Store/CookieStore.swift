@@ -85,6 +85,20 @@ final class CookieStore: ObservableObject {
         return cookies.contains { $0.displayIds?.contains(displayId) ?? false }
     }
 
+    @MainActor
+    func learnDisplayId(for cookieHash: String, cookieValue: String) async {
+        let known = !(cookies.first(where: { $0.userHash == cookieHash })?.displayIds ?? []).isEmpty
+        let delays: [UInt64] = known ? [0] : [0, 2, 5]
+        for delay in delays {
+            if delay > 0 { try? await Task.sleep(nanoseconds: delay * 1_000_000_000) }
+            if let post = try? await XDAPI.shared.lastPost(cookie: cookieValue), !post.userHash.isEmpty {
+                recordDisplayId(post.userHash, for: cookieHash)
+                return
+            }
+        }
+        if !known { LaunchLog.mark("发送后未能取得显示 ID，等待下次同步") }
+    }
+
     private var lastDisplayIdSync: Date?
     private var displayIdSyncTask: Task<Void, Never>?
     private var displayIdSyncRerun = false
