@@ -16,11 +16,11 @@
       "versions": [
         {
           "version": "1.1",
-          "buildVersion": "6",
-          "date": "2026-09-20",
-          "localizedDescription": "注意：自 beta1.1 起支持的最低系统版本为 iOS 16.4\n\n1. 刚发出的回复现在会更快显示「我」标记，发送后会自动重试获取这块饼干的显示 ID\n2. 编号未确认的发串记录，点击后会打开它所在的版块\n3. 尝试修复 #1 中出现的「导入饼干以后浏览小说板块，仍会提示需要导入饼干」问题",
-          "downloadURL": "https://github.com/kakenhidesu/CookieJar/releases/download/beta1.1/CookieJar_b1.1_6.ipa",
-          "size": 1948239,
+          "buildVersion": "7",
+          "date": "2026-09-21",
+          "localizedDescription": "注意：自 beta1.1 起支持的最低系统版本为 iOS 16.4\n\n1. 尝试修复 #1：用账号登录导入的部分饼干仍提示「必须登入领取饼干」\n2. 「我」标记现在会直接按饼干名识别，在网页端或其他客户端发的回复也能立刻标出\n3. 修复了历史页底部标签栏背景变透明的问题",
+          "downloadURL": "https://github.com/kakenhidesu/CookieJar/releases/download/beta1.1/CookieJar_b1.1_7.ipa",
+          "size": 1949349,
           "minOSVersion": "16.4"
         }
       ]
