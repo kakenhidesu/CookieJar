@@ -262,7 +262,7 @@ struct PostBodyView: View {
     }
 
     private var isSelf: Bool {
-        cookies.isMine(displayId: post.userHash)
+        cookies.isMine(displayId: post.userHash) || HistoryStore.shared.isMyPost(id: post.id)
     }
 
     private var isPoPost: Bool {

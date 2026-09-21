@@ -82,7 +82,7 @@ final class CookieStore: ObservableObject {
 
     func isMine(displayId: String) -> Bool {
         guard !displayId.isEmpty else { return false }
-        return cookies.contains { $0.displayIds?.contains(displayId) ?? false }
+        return cookies.contains { $0.name == displayId || ($0.displayIds?.contains(displayId) ?? false) }
     }
 
     @MainActor

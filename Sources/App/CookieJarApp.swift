@@ -13,6 +13,11 @@ struct CookieJarApp: App {
         LaunchLog.startNewRun()
         LaunchLog.mark("app init（内存 \(LaunchLog.footprintMB)MB）")
 
+        let tabBarAppearance = UITabBarAppearance()
+        tabBarAppearance.configureWithDefaultBackground()
+        UITabBar.appearance().standardAppearance = tabBarAppearance
+        UITabBar.appearance().scrollEdgeAppearance = tabBarAppearance
+
         NotificationCenter.default.addObserver(
             forName: UIApplication.didReceiveMemoryWarningNotification,
             object: nil, queue: .main

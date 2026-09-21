@@ -121,6 +121,7 @@ final class HistoryStore: ObservableObject {
         progress = progressDisk.load()
         lastSession = sessionStore.load()?.first
         regroupBrowsing()
+        rebuildMyPostIds()
         if !posts.isEmpty, let raw = try? Data(contentsOf: AppPaths.file("posts.json")),
            raw.range(of: Data("\"localId\"".utf8)) == nil {
             postStore.saveNow(posts)
@@ -191,17 +192,27 @@ final class HistoryStore: ObservableObject {
         browseStore.saveNow(browsing)
     }
 
+    private var myPostIdCache: Set<Int> = []
+
+    func isMyPost(id: Int) -> Bool { myPostIdCache.contains(id) }
+
+    private func rebuildMyPostIds() {
+        myPostIdCache = Set(posts.compactMap(\.postId))
+    }
+
     func recordPost(_ record: PostRecord) {
         guard !posts.contains(where: { $0.id == record.id }) else { return }
         let idx = posts.firstIndex(where: { $0.createdAt < record.createdAt }) ?? posts.count
         posts.insert(record, at: idx)
         if posts.count > 500 { posts = Array(posts.prefix(500)) }
+        rebuildMyPostIds()
         postsDirty = true
         postStore.save(posts)
     }
 
     func removePost(localId: UUID) {
         posts.removeAll { $0.id == localId }
+        rebuildMyPostIds()
         postsDirty = true
         postStore.save(posts)
     }
@@ -212,6 +223,7 @@ final class HistoryStore: ObservableObject {
         } else {
             posts = []
         }
+        rebuildMyPostIds()
         postStore.saveNow(posts)
     }
 

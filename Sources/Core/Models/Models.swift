@@ -189,7 +189,7 @@ struct XDCookie: Codable, Hashable, Identifiable {
     var remoteId: Int?
     var displayIds: [String]?
 
-    var cookieValue: String { "userhash=\(userHash)" }
+    var cookieValue: String { "userhash=\(userHash.replacingOccurrences(of: "+", with: "%20"))" }
 }
 
 struct CookiesListInfo {
