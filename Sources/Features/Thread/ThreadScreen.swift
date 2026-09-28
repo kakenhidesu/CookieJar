@@ -55,14 +55,23 @@ final class ThreadViewModel: ObservableObject {
 
     func reloadLastPage() async {
         await inflight?.value
+        let wasAtEnd = !loadedPages.isEmpty && currentLastPage >= maxPage
         await load(page: currentLastPage, force: true)
+        guard wasAtEnd, error == nil else { return }
+        while currentLastPage < maxPage {
+            let nextPage = currentLastPage + 1
+            await load(page: nextPage)
+            if error != nil || !loadedPages.contains(nextPage) { break }
+        }
     }
 
     func refreshLastPage() async {
         Task { await CookieStore.shared.syncDisplayIds(force: true) }
+        await inflight?.value
         let before = replies.count
+        let previousMaxPage = maxPage
         await reloadLastPage()
-        if replies.count == before && error == nil {
+        if replies.count == before && maxPage == previousMaxPage && error == nil {
             Toast.shared.show("没有新回复")
         }
     }
@@ -85,6 +94,18 @@ final class ThreadViewModel: ObservableObject {
             let result = try await XDAPI.shared.thread(mainPostId: mainPostId, page: page, onlyPo: onlyPo, cookie: cookie)
             mainPost = result.mainPost
             if result.tip != nil { tip = result.tip }
+            HistoryStore.shared.recordObservedReplies(result.replies,
+                                                      mainPostId: mainPostId,
+                                                      forumId: result.mainPost.forumId)
+            let observedReplies = result.replies
+            let observedForumId = result.mainPost.forumId
+            let observedThreadId = mainPostId
+            Task { @MainActor in
+                await CookieStore.shared.syncDisplayIds()
+                HistoryStore.shared.recordObservedReplies(observedReplies,
+                                                          mainPostId: observedThreadId,
+                                                          forumId: observedForumId)
+            }
 
             if reset {
                 replies = []

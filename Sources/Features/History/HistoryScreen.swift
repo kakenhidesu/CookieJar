@@ -163,7 +163,10 @@ struct HistoryScreen: View {
     private func openPost(_ record: PostRecord) {
         switch record.kind {
         case .reply:
-            if let main = record.mainPostId, main > 0 { app.openThread(main) }
+            if let main = record.mainPostId, main > 0 {
+                let replyId = record.status == .accepted ? record.postId : nil
+                app.openThread(main, jumpTo: replyId)
+            }
         case .thread:
             if record.status == .legacy, record.postId != nil {
                 legacyThread = record
@@ -180,9 +183,19 @@ struct HistoryScreen: View {
     private func postIdLabel(_ record: PostRecord) -> some View {
         switch record.status {
         case .accepted:
-            Text("编号未确认")
-                .font(.system(size: 11))
-                .foregroundStyle(XDTheme.secondaryText)
+            if let id = record.postId, id > 0 {
+                Text(verbatim: "No.\(id)")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(XDTheme.secondaryText)
+            } else if record.kind == .reply, let main = record.mainPostId, main > 0 {
+                Text(verbatim: "回复至 No.\(main)")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(XDTheme.secondaryText)
+            } else {
+                Text("串号未返回")
+                    .font(.system(size: 11))
+                    .foregroundStyle(XDTheme.secondaryText)
+            }
         case .resultUnknown:
             Text("发送结果未知")
                 .font(.system(size: 11))

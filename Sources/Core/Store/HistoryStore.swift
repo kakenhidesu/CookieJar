@@ -210,6 +210,33 @@ final class HistoryStore: ObservableObject {
         postStore.save(posts)
     }
 
+    func recordObservedReplies(_ replies: [XDPost], mainPostId: Int, forumId: Int?) {
+        var knownIds = Set(posts.compactMap { $0.status == .accepted ? $0.postId : nil })
+        let cookies = CookieStore.shared
+        let newRecords = replies.compactMap { post -> PostRecord? in
+            guard post.id > 0,
+                  cookies.isMine(displayId: post.userHash),
+                  knownIds.insert(post.id).inserted else { return nil }
+            return PostRecord(postId: post.id,
+                              status: .accepted,
+                              kind: .reply,
+                              mainPostId: mainPostId,
+                              forumId: post.forumId ?? forumId,
+                              title: post.title,
+                              content: XDContent.plainText(post.content),
+                              userHash: post.userHash,
+                              hasImage: post.hasImage,
+                              createdAt: post.postTime == .distantPast ? Date() : post.postTime)
+        }
+        guard !newRecords.isEmpty else { return }
+        posts.append(contentsOf: newRecords)
+        posts.sort { $0.createdAt > $1.createdAt }
+        if posts.count > 500 { posts = Array(posts.prefix(500)) }
+        rebuildMyPostIds()
+        postsDirty = true
+        postStore.save(posts)
+    }
+
     func removePost(localId: UUID) {
         posts.removeAll { $0.id == localId }
         rebuildMyPostIds()
