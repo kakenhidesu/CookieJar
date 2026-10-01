@@ -3,7 +3,7 @@ import Foundation
 final class ProgressDiskStore {
     struct Snapshot: Codable {
         var version: Int
-        var entries: [Int: HistoryStore.ReadProgress]
+        var entries: [Int: ThreadReadProgress]
     }
 
     private struct JournalLine: Codable {
@@ -13,11 +13,19 @@ final class ProgressDiskStore {
         var at: Date
     }
 
-    private let snapshotURL = AppPaths.file("progress.json")
-    private let backupURL = AppPaths.file("progress.json.bak")
-    private let journalURL = AppPaths.file("progress-journal.jsonl")
+    private let snapshotURL: URL
+    private let backupURL: URL
+    private let journalURL: URL
     private let queue = DispatchQueue(label: "xd.progress", qos: .utility)
     private(set) var loadedJournalLines = 0
+
+    init(onlyPo: Bool = false, directory: URL = AppPaths.dataDirectory) {
+        // Keep the old filenames and schema for normal reading; no destructive migration is needed.
+        let name = onlyPo ? "progress-po" : "progress"
+        snapshotURL = directory.appendingPathComponent("\(name).json")
+        backupURL = directory.appendingPathComponent("\(name).json.bak")
+        journalURL = directory.appendingPathComponent("\(name)-journal.jsonl")
+    }
 
     private static func makeEncoder() -> JSONEncoder {
         let e = JSONEncoder()
@@ -31,28 +39,29 @@ final class ProgressDiskStore {
         return d
     }
 
-    func load() -> [Int: HistoryStore.ReadProgress] {
-        var entries: [Int: HistoryStore.ReadProgress] = [:]
+    func load() -> [Int: ThreadReadProgress] {
         let decoder = Self.makeDecoder()
-        if let data = try? Data(contentsOf: snapshotURL) {
-            if let snap = try? decoder.decode(Snapshot.self, from: data) {
-                entries = snap.entries
-            } else if let legacy = try? decoder.decode([Int: HistoryStore.ReadProgress].self, from: data) {
-                entries = legacy
-                try? FileManager.default.copyItem(at: snapshotURL, to: backupURL)
+        func readSnapshot(_ url: URL) -> [Int: ThreadReadProgress]? {
+            guard let data = try? Data(contentsOf: url) else { return nil }
+            if let snap = try? decoder.decode(Snapshot.self, from: data), snap.version == 1 {
+                return snap.entries
             }
+            return try? decoder.decode([Int: ThreadReadProgress].self, from: data)
         }
+        var entries = readSnapshot(snapshotURL) ?? readSnapshot(backupURL) ?? [:]
+        loadedJournalLines = 0
         if let data = try? Data(contentsOf: journalURL), !data.isEmpty {
             for chunk in data.split(separator: UInt8(ascii: "\n")) {
                 guard let line = try? decoder.decode(JournalLine.self, from: Data(chunk)) else { continue }
-                entries[line.id] = HistoryStore.ReadProgress(page: line.page, postId: line.postId, updatedAt: line.at)
+                // Preserve legacy journal order, including entries saved after a device clock change.
+                entries[line.id] = ThreadReadProgress(page: line.page, postId: line.postId, updatedAt: line.at)
                 loadedJournalLines += 1
             }
         }
         return entries
     }
 
-    func append(id: Int, _ record: HistoryStore.ReadProgress) {
+    func append(id: Int, _ record: ThreadReadProgress) {
         queue.async {
             let line = JournalLine(id: id, page: record.page, postId: record.postId, at: record.updatedAt)
             guard var data = try? Self.makeEncoder().encode(line) else { return }
@@ -67,21 +76,17 @@ final class ProgressDiskStore {
         }
     }
 
-    func compact(_ entries: [Int: HistoryStore.ReadProgress], completion: (() -> Void)? = nil) {
+    func compact(_ entries: [Int: ThreadReadProgress], completion: (() -> Void)? = nil) {
         queue.async {
             defer { completion?() }
             guard let data = try? Self.makeEncoder().encode(Snapshot(version: 1, entries: entries)) else { return }
-            try? data.write(to: self.snapshotURL, options: .atomic)
+            guard (try? data.write(to: self.snapshotURL, options: .atomic)) != nil else { return }
+            try? data.write(to: self.backupURL, options: .atomic)
             try? Data().write(to: self.journalURL, options: .atomic)
         }
     }
 
     func clear() {
-        queue.async {
-            try? FileManager.default.removeItem(at: self.journalURL)
-            if let data = try? Self.makeEncoder().encode(Snapshot(version: 1, entries: [:])) {
-                try? data.write(to: self.snapshotURL, options: .atomic)
-            }
-        }
+        compact([:])
     }
 }

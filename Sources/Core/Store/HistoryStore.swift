@@ -2,91 +2,6 @@ import Foundation
 import SwiftUI
 import UIKit
 
-struct BrowseRecord: Codable, Identifiable, Hashable {
-    var id: Int
-    var title: String
-    var preview: String
-    var userHash: String
-    var forumId: Int?
-    var replyCount: Int?
-    var image: String
-    var imageExtension: String
-    var lastPage: Int
-    var lastPostId: Int?
-    var browsedAt: Date
-}
-
-struct PostRecord: Codable, Identifiable, Hashable {
-    enum Kind: String, Codable { case thread, reply }
-    enum SendStatus: String, Codable { case accepted, resultUnknown, legacy }
-
-    var id: UUID
-    var postId: Int?
-    var status: SendStatus
-    var kind: Kind
-    var mainPostId: Int?
-    var forumId: Int?
-    var title: String
-    var content: String
-    var userHash: String
-    var hasImage: Bool
-    var createdAt: Date
-
-    init(id: UUID = UUID(), postId: Int? = nil, status: SendStatus, kind: Kind,
-         mainPostId: Int?, forumId: Int?, title: String, content: String,
-         userHash: String, hasImage: Bool, createdAt: Date) {
-        self.id = id
-        self.postId = postId
-        self.status = status
-        self.kind = kind
-        self.mainPostId = mainPostId
-        self.forumId = forumId
-        self.title = title
-        self.content = content
-        self.userHash = userHash
-        self.hasImage = hasImage
-        self.createdAt = createdAt
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case id = "localId", postId, status, kind, mainPostId, forumId, title, content, userHash, hasImage, createdAt
-    }
-
-    private enum LegacyKeys: String, CodingKey {
-        case id
-    }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        kind = try c.decode(Kind.self, forKey: .kind)
-        mainPostId = try c.decodeIfPresent(Int.self, forKey: .mainPostId)
-        forumId = try c.decodeIfPresent(Int.self, forKey: .forumId)
-        title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
-        content = try c.decodeIfPresent(String.self, forKey: .content) ?? ""
-        userHash = try c.decodeIfPresent(String.self, forKey: .userHash) ?? ""
-        hasImage = try c.decodeIfPresent(Bool.self, forKey: .hasImage) ?? false
-        createdAt = try c.decode(Date.self, forKey: .createdAt)
-        if let localId = try c.decodeIfPresent(UUID.self, forKey: .id) {
-            id = localId
-            postId = try c.decodeIfPresent(Int.self, forKey: .postId)
-            status = (try? c.decodeIfPresent(SendStatus.self, forKey: .status)) ?? .legacy
-        } else {
-            let legacyId = (try? decoder.container(keyedBy: LegacyKeys.self).decodeIfPresent(Int.self, forKey: .id)) ?? 0
-            id = UUID()
-            postId = legacyId > 0 ? legacyId : nil
-            status = .legacy
-        }
-    }
-}
-
-struct LastReadSession: Codable, Hashable {
-    var mainPostId: Int
-    var page: Int
-    var postId: Int?
-    var onlyPo: Bool
-    var savedAt: Date
-}
-
 final class HistoryStore: ObservableObject {
     static let shared = HistoryStore()
 
@@ -94,12 +9,9 @@ final class HistoryStore: ObservableObject {
     @Published private(set) var browsingByDay: [(day: Date, records: [BrowseRecord])] = []
     @Published private(set) var posts: [PostRecord] = []
     @Published private(set) var progress: [Int: ReadProgress] = [:]
+    @Published private(set) var poProgress: [Int: ReadProgress] = [:]
 
-    struct ReadProgress: Codable, Hashable {
-        var page: Int
-        var postId: Int?
-        var updatedAt: Date
-    }
+    typealias ReadProgress = ThreadReadProgress
 
     @Published private(set) var lastSession: LastReadSession?
 
@@ -107,6 +19,7 @@ final class HistoryStore: ObservableObject {
     private let browseStore = JSONStore<[BrowseRecord]>(filename: "browsing.json")
     private let postStore = JSONStore<[PostRecord]>(filename: "posts.json")
     private let progressDisk = ProgressDiskStore()
+    private let poProgressDisk = ProgressDiskStore(onlyPo: true)
     private var progressAppends = 0
 
     private let browseLimit = 1000
@@ -119,15 +32,22 @@ final class HistoryStore: ObservableObject {
         browsing = browseStore.load() ?? []
         posts = postStore.load() ?? []
         progress = progressDisk.load()
+        poProgress = poProgressDisk.load()
         lastSession = sessionStore.load()?.first
         regroupBrowsing()
+        let reconciled = reconcileReplies([])
         rebuildMyPostIds()
         if !posts.isEmpty, let raw = try? Data(contentsOf: AppPaths.file("posts.json")),
            raw.range(of: Data("\"localId\"".utf8)) == nil {
             postStore.saveNow(posts)
+        } else if reconciled {
+            postStore.saveNow(posts)
         }
         if progressDisk.loadedJournalLines > 0 {
             progressDisk.compact(progress)
+        }
+        if poProgressDisk.loadedJournalLines > 0 {
+            poProgressDisk.compact(poProgress)
         }
     }
 
@@ -162,8 +82,10 @@ final class HistoryStore: ObservableObject {
             .map { (day: $0.key, records: $0.value) }
     }
 
-    func recordBrowse(_ post: XDPost, page: Int) {
+    func recordBrowse(_ post: XDPost, page: Int, onlyPo: Bool = false) {
         guard SettingsStore.shared.recordBrowsing else { return }
+        let previous = browsing.first(where: { $0.id == post.id })
+        let normalProgress = progress[post.id]
         let record = BrowseRecord(id: post.id,
                                   title: post.title,
                                   preview: post.preview,
@@ -172,8 +94,8 @@ final class HistoryStore: ObservableObject {
                                   replyCount: post.replyCount,
                                   image: post.image,
                                   imageExtension: post.imageExtension,
-                                  lastPage: page,
-                                  lastPostId: progress[post.id]?.postId,
+                                  lastPage: onlyPo ? (normalProgress?.page ?? previous?.lastPage ?? 1) : page,
+                                  lastPostId: normalProgress != nil ? normalProgress?.postId : previous?.lastPostId,
                                   browsedAt: Date())
         browsing.removeAll { $0.id == post.id }
         browsing.insert(record, at: 0)
@@ -204,6 +126,7 @@ final class HistoryStore: ObservableObject {
         guard !posts.contains(where: { $0.id == record.id }) else { return }
         let idx = posts.firstIndex(where: { $0.createdAt < record.createdAt }) ?? posts.count
         posts.insert(record, at: idx)
+        _ = reconcileReplies([])
         if posts.count > 500 { posts = Array(posts.prefix(500)) }
         rebuildMyPostIds()
         postsDirty = true
@@ -211,12 +134,10 @@ final class HistoryStore: ObservableObject {
     }
 
     func recordObservedReplies(_ replies: [XDPost], mainPostId: Int, forumId: Int?) {
-        var knownIds = Set(posts.compactMap { $0.status == .accepted ? $0.postId : nil })
         let cookies = CookieStore.shared
-        let newRecords = replies.compactMap { post -> PostRecord? in
+        let observed = replies.compactMap { post -> PostRecord? in
             guard post.id > 0,
-                  cookies.isMine(displayId: post.userHash),
-                  knownIds.insert(post.id).inserted else { return nil }
+                  cookies.isMine(displayId: post.userHash) else { return nil }
             return PostRecord(postId: post.id,
                               status: .accepted,
                               kind: .reply,
@@ -226,15 +147,22 @@ final class HistoryStore: ObservableObject {
                               content: XDContent.plainText(post.content),
                               userHash: post.userHash,
                               hasImage: post.hasImage,
-                              createdAt: post.postTime == .distantPast ? Date() : post.postTime)
+                              createdAt: post.postTime)
         }
-        guard !newRecords.isEmpty else { return }
-        posts.append(contentsOf: newRecords)
+        guard reconcileReplies(observed) else { return }
         posts.sort { $0.createdAt > $1.createdAt }
         if posts.count > 500 { posts = Array(posts.prefix(500)) }
         rebuildMyPostIds()
         postsDirty = true
         postStore.save(posts)
+    }
+
+    private func reconcileReplies(_ observed: [PostRecord]) -> Bool {
+        ReplyHistoryReconciler.merge(observed, into: &posts) { displayId in
+            Set(CookieStore.shared.cookies.filter {
+                $0.name == displayId || ($0.displayIds?.contains(displayId) ?? false)
+            }.map(\.userHash))
+        }
     }
 
     func removePost(localId: UUID) {
@@ -254,34 +182,42 @@ final class HistoryStore: ObservableObject {
         postStore.saveNow(posts)
     }
 
-    func saveProgress(mainPostId: Int, page: Int, postId: Int?) {
+    func saveProgress(mainPostId: Int, page: Int, postId: Int?, onlyPo: Bool) {
         guard SettingsStore.shared.restoreReadProgress else { return }
         let record = ReadProgress(page: page, postId: postId, updatedAt: Date())
-        progress[mainPostId] = record
+        if onlyPo {
+            poProgress[mainPostId] = record
+        } else {
+            progress[mainPostId] = record
+        }
         progressDirty = true
-        progressDisk.append(id: mainPostId, record)
+        (onlyPo ? poProgressDisk : progressDisk).append(id: mainPostId, record)
         progressAppends += 1
         if progressAppends >= 2000 {
             progressAppends = 0
             progressDirty = false
             progressDisk.compact(progress)
+            poProgressDisk.compact(poProgress)
         }
-        if let idx = browsing.firstIndex(where: { $0.id == mainPostId }) {
+        if !onlyPo, let idx = browsing.firstIndex(where: { $0.id == mainPostId }) {
             browsing[idx].lastPage = page
             browsing[idx].lastPostId = postId
             browsingDidChange()
         }
     }
 
-    func readProgress(for mainPostId: Int) -> ReadProgress? {
-        SettingsStore.shared.restoreReadProgress ? progress[mainPostId] : nil
+    func readProgress(for mainPostId: Int, onlyPo: Bool) -> ReadProgress? {
+        guard SettingsStore.shared.restoreReadProgress else { return nil }
+        return (onlyPo ? poProgress : progress)[mainPostId]
     }
 
     func clearProgress() {
         progress = [:]
+        poProgress = [:]
         progressAppends = 0
         progressDirty = false
         progressDisk.clear()
+        poProgressDisk.clear()
     }
 
     func flush() {
@@ -302,6 +238,8 @@ final class HistoryStore: ObservableObject {
             progressDirty = false
             group.enter()
             progressDisk.compact(progress) { group.leave() }
+            group.enter()
+            poProgressDisk.compact(poProgress) { group.leave() }
         }
         group.enter()
         sessionStore.flushAsync(lastSession.map { [$0] } ?? []) { group.leave() }

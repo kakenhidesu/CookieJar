@@ -13,6 +13,7 @@ final class ThreadViewModel: ObservableObject {
     @Published var loadedPages: [Int] = []
     @Published var isLoading = false
     @Published var isPositioning = false
+    @Published var isSwitchingMode = false
     @Published var error: String?
     @Published var onlyPo = false
     @Published var pageAnchor: ThreadAnchor?
@@ -37,14 +38,32 @@ final class ThreadViewModel: ObservableObject {
     var canLoadMore: Bool { currentLastPage < maxPage }
 
     func reset(onlyPo: Bool) async {
+        guard !isSwitchingMode else { return }
+        isSwitchingMode = true
+        defer { isSwitchingMode = false }
+        await inflight?.value
+        saveReadProgress()
         self.onlyPo = onlyPo
+        let progress = HistoryStore.shared.readProgress(for: mainPostId, onlyPo: onlyPo)
         replies = []
         loadedPages = []
         loadedIds = []
         replyPage = [:]
         visibleIds = []
         lastVisibleId = nil
-        await load(page: 1, reset: true)
+        HistoryStore.shared.noteReading(mainPostId: mainPostId, page: progress?.page ?? 1,
+                                        postId: progress?.postId, onlyPo: onlyPo)
+        await openPage(progress?.page ?? 1, anchorPostId: progress?.postId)
+    }
+
+    func saveReadProgress() {
+        guard !loadedPages.isEmpty else { return }
+        let candidate = lastVisibleId ?? replies.last?.id
+        let page = candidate.flatMap { replyPage[$0] }
+        HistoryStore.shared.saveProgress(mainPostId: mainPostId,
+                                         page: page ?? currentLastPage,
+                                         postId: page == nil ? nil : candidate,
+                                         onlyPo: onlyPo)
     }
 
     func refreshCurrentPage() async {
@@ -128,7 +147,7 @@ final class ThreadViewModel: ObservableObject {
             error = nil
 
             if let mp = mainPost {
-                HistoryStore.shared.recordBrowse(mp, page: page)
+                HistoryStore.shared.recordBrowse(mp, page: page, onlyPo: onlyPo)
             }
         } catch {
             self.error = error.localizedDescription
@@ -332,7 +351,8 @@ struct ThreadScreen: View {
         .sheet(isPresented: $showJumpSheet) { jumpSheet }
         .task {
             if vm.mainPost == nil {
-                let progress = jumpToPostId == nil ? HistoryStore.shared.readProgress(for: mainPostId) : nil
+                let progress = jumpToPostId == nil
+                    ? HistoryStore.shared.readProgress(for: mainPostId, onlyPo: onlyPo) : nil
                 let start = progress?.page ?? initialPage
                 let target = jumpToPostId ?? progress?.postId
                 restoreTarget = target
@@ -353,11 +373,7 @@ struct ThreadScreen: View {
             Task { await vm.reloadLastPage() }
         }
         .onDisappear {
-            let candidate = vm.lastVisibleId ?? vm.replies.last?.id
-            let page = candidate.flatMap { vm.page(of: $0) }
-            HistoryStore.shared.saveProgress(mainPostId: mainPostId,
-                                             page: page ?? vm.currentLastPage,
-                                             postId: page == nil ? nil : candidate)
+            vm.saveReadProgress()
         }
     }
 
@@ -373,12 +389,12 @@ struct ThreadScreen: View {
             Menu {
                 Button {
                     Task {
-                        vm.onlyPo.toggle()
-                        await vm.reset(onlyPo: vm.onlyPo)
+                        await vm.reset(onlyPo: !vm.onlyPo)
                     }
                 } label: {
                     Label(vm.onlyPo ? "看全部回复" : "只看 Po", systemImage: "person.crop.circle")
                 }
+                .disabled(vm.isLoading || vm.isSwitchingMode)
 
                 Button {
                     showJumpSheet = true
