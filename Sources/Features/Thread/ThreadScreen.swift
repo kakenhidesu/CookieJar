@@ -15,7 +15,7 @@ final class ThreadViewModel: ObservableObject {
     @Published var isPositioning = false
     @Published var isSwitchingMode = false
     @Published var error: String?
-    @Published var onlyPo = false
+    @Published private(set) var onlyPo = false
     @Published var pageAnchor: ThreadAnchor?
 
     var isSubscribed: Bool { SubscriptionCache.shared.contains(mainPostId) }
@@ -27,9 +27,14 @@ final class ThreadViewModel: ObservableObject {
     private var replyPage: [Int: Int] = [:]
     private var inflight: Task<Void, Never>?
     private var anchorTick = 0
+    private(set) var contextID = UUID()
+    private var requestID: UUID?
+    private var isReadingActive = true
+    private var didFinishInitialRestoration = false
 
-    init(mainPostId: Int) {
+    init(mainPostId: Int, onlyPo: Bool = false) {
         self.mainPostId = mainPostId
+        self.onlyPo = onlyPo
     }
 
     var maxPage: Int { max(1, mainPost?.maxPage ?? 1) }
@@ -38,11 +43,21 @@ final class ThreadViewModel: ObservableObject {
     var canLoadMore: Bool { currentLastPage < maxPage }
 
     func reset(onlyPo: Bool) async {
-        guard !isSwitchingMode else { return }
-        isSwitchingMode = true
-        defer { isSwitchingMode = false }
-        await inflight?.value
+        guard isReadingActive else { return }
         saveReadProgress()
+        // Cancellation is best effort; the request identity also rejects late responses.
+        contextID = UUID()
+        let context = contextID
+        requestID = nil
+        inflight?.cancel()
+        inflight = nil
+        isLoading = false
+        isSwitchingMode = true
+        defer { if context == contextID { isSwitchingMode = false } }
+        error = nil
+        tip = nil
+        pageAnchor = nil
+        isPositioning = false
         self.onlyPo = onlyPo
         let progress = HistoryStore.shared.readProgress(for: mainPostId, onlyPo: onlyPo)
         replies = []
@@ -57,60 +72,116 @@ final class ThreadViewModel: ObservableObject {
     }
 
     func saveReadProgress() {
-        guard !loadedPages.isEmpty else { return }
-        let candidate = lastVisibleId ?? replies.last?.id
-        let page = candidate.flatMap { replyPage[$0] }
+        // Loaded replies are not necessarily visible while restoring the scroll position.
+        guard isReadingActive, didFinishInitialRestoration, !isPositioning,
+              let candidate = lastVisibleId, let page = replyPage[candidate] else { return }
         HistoryStore.shared.saveProgress(mainPostId: mainPostId,
-                                         page: page ?? currentLastPage,
-                                         postId: page == nil ? nil : candidate,
+                                         page: page,
+                                         postId: candidate,
                                          onlyPo: onlyPo)
+    }
+
+    func resumeReading() {
+        isReadingActive = true
+    }
+
+    func beginInitialRestoration() {
+        didFinishInitialRestoration = false
+    }
+
+    func stopReading() {
+        saveReadProgress()
+        isReadingActive = false
+        contextID = UUID()
+        requestID = nil
+        inflight?.cancel()
+        inflight = nil
+        isLoading = false
+        isPositioning = false
+        isSwitchingMode = false
+    }
+
+    func finishInitialRestoration(at postId: Int? = nil) {
+        guard isReadingActive, !didFinishInitialRestoration else { return }
+        didFinishInitialRestoration = true
+        if let postId, replyPage[postId] != nil {
+            recordReadingAnchor(postId)
+        } else {
+            updateReadingAnchor()
+        }
+    }
+
+    func finishPositioning(at postId: Int) {
+        isPositioning = false
+        recordReadingAnchor(postId)
     }
 
     func refreshCurrentPage() async {
         Task { await CookieStore.shared.syncDisplayIds(force: true) }
+        let context = contextID
         await inflight?.value
+        guard context == contextID else { return }
         await load(page: currentFirstPage, reset: true)
     }
 
     func reloadLastPage() async {
+        let context = contextID
         await inflight?.value
+        guard context == contextID else { return }
         let wasAtEnd = !loadedPages.isEmpty && currentLastPage >= maxPage
         await load(page: currentLastPage, force: true)
-        guard wasAtEnd, error == nil else { return }
+        guard context == contextID, wasAtEnd, error == nil else { return }
         while currentLastPage < maxPage {
             let nextPage = currentLastPage + 1
             await load(page: nextPage)
-            if error != nil || !loadedPages.contains(nextPage) { break }
+            if context != contextID || error != nil || !loadedPages.contains(nextPage) { break }
         }
     }
 
     func refreshLastPage() async {
         Task { await CookieStore.shared.syncDisplayIds(force: true) }
+        let context = contextID
         await inflight?.value
+        guard context == contextID else { return }
         let before = replies.count
         let previousMaxPage = maxPage
         await reloadLastPage()
+        guard context == contextID else { return }
         if replies.count == before && maxPage == previousMaxPage && error == nil {
             Toast.shared.show("没有新回复")
         }
     }
 
     func load(page: Int, reset: Bool = false, prepend: Bool = false, force: Bool = false) async {
-        guard !isLoading else { return }
+        guard isReadingActive, !isLoading else { return }
         guard page >= 1 else { return }
         if !reset && !force && loadedPages.contains(page) { return }
-        let task = Task { @MainActor in await self.performLoad(page: page, reset: reset, prepend: prepend) }
+        let request = UUID()
+        let mode = onlyPo
+        let cookie = CookieStore.shared.cookieValue
+        requestID = request
+        isLoading = true
+        let task = Task { @MainActor in
+            await self.performLoad(page: page, reset: reset, prepend: prepend,
+                                   request: request, onlyPo: mode, cookie: cookie)
+        }
         inflight = task
         await task.value
-        inflight = nil
     }
 
-    private func performLoad(page: Int, reset: Bool, prepend: Bool) async {
-        isLoading = true
-        defer { isLoading = false }
+    private func performLoad(page: Int, reset: Bool, prepend: Bool,
+                             request: UUID, onlyPo: Bool, cookie: String?) async {
+        guard requestID == request, !Task.isCancelled else { return }
+        defer {
+            if requestID == request {
+                inflight = nil
+                requestID = nil
+                isLoading = false
+            }
+        }
         do {
-            let cookie = CookieStore.shared.cookieValue
             let result = try await XDAPI.shared.thread(mainPostId: mainPostId, page: page, onlyPo: onlyPo, cookie: cookie)
+            guard requestID == request, self.onlyPo == onlyPo, !Task.isCancelled else { return }
             mainPost = result.mainPost
             if result.tip != nil { tip = result.tip }
             HistoryStore.shared.recordObservedReplies(result.replies,
@@ -150,6 +221,7 @@ final class ThreadViewModel: ObservableObject {
                 HistoryStore.shared.recordBrowse(mp, page: page, onlyPo: onlyPo)
             }
         } catch {
+            guard requestID == request, self.onlyPo == onlyPo, !Task.isCancelled else { return }
             self.error = error.localizedDescription
         }
     }
@@ -166,11 +238,19 @@ final class ThreadViewModel: ObservableObject {
 
     private func updateReadingAnchor() {
         guard let top = replies.first(where: { visibleIds.contains($0.id) }) else { return }
-        lastVisibleId = top.id
+        recordReadingAnchor(top.id)
+    }
+
+    private func recordReadingAnchor(_ postId: Int) {
+        guard isReadingActive, didFinishInitialRestoration, !isPositioning,
+              lastVisibleId != postId, let page = replyPage[postId] else { return }
+        lastVisibleId = postId
         HistoryStore.shared.noteReading(mainPostId: mainPostId,
-                                        page: replyPage[top.id] ?? currentLastPage,
-                                        postId: top.id,
+                                        page: page,
+                                        postId: postId,
                                         onlyPo: onlyPo)
+        // Keep confirmed progress durable even if the app exits before onDisappear.
+        saveReadProgress()
     }
 
     func loadNextIfNeeded(current post: XDPost) async {
@@ -179,9 +259,12 @@ final class ThreadViewModel: ObservableObject {
     }
 
     func openPage(_ page: Int, anchorPostId: Int? = nil) async {
+        guard isReadingActive, !isLoading else { return }
+        let context = contextID
         let target = max(1, page)
         isPositioning = true
         await load(page: target, reset: true)
+        guard context == contextID else { return }
         var anchorId = anchorPostId.flatMap { id in replies.contains(where: { $0.id == id }) ? id : nil }
         if anchorId == nil, target > 1 { anchorId = replies.first?.id }
         guard let anchor = anchorId else {
@@ -189,6 +272,7 @@ final class ThreadViewModel: ObservableObject {
             return
         }
         if target > 1 { await load(page: target - 1, prepend: true) }
+        guard context == contextID else { return }
         anchorTick += 1
         pageAnchor = ThreadAnchor(postId: anchor, tick: anchorTick)
     }
@@ -196,7 +280,9 @@ final class ThreadViewModel: ObservableObject {
     func page(of id: Int) -> Int? { replyPage[id] }
 
     func retryLoad() async {
+        let context = contextID
         await inflight?.value
+        guard context == contextID else { return }
         if replies.isEmpty {
             await load(page: currentLastPage, reset: true)
         } else if canLoadMore {
@@ -262,7 +348,7 @@ struct ThreadScreen: View {
         self.initialPage = initialPage
         self.onlyPo = onlyPo
         self.jumpToPostId = jumpToPostId
-        _vm = StateObject(wrappedValue: ThreadViewModel(mainPostId: mainPostId))
+        _vm = StateObject(wrappedValue: ThreadViewModel(mainPostId: mainPostId, onlyPo: onlyPo))
     }
 
     var body: some View {
@@ -320,10 +406,11 @@ struct ThreadScreen: View {
                 .refreshable { await vm.refreshCurrentPage() }
                 .onChange(of: initialLoadDone) { _ in restoreScroll(proxy) }
                 .onChange(of: vm.pageAnchor) { anchor in
-                    if let anchor, restoreTarget == nil || didInitialJump {
+                    guard let anchor else { return }
+                    if restoreTarget == nil || didInitialJump {
                         proxy.scrollTo(anchor.postId, anchor: .top)
                     }
-                    vm.isPositioning = false
+                    vm.finishPositioning(at: anchor.postId)
                 }
                 .onChange(of: vm.replies.count) { _ in
                     guard initialLoadDone else { return }
@@ -349,23 +436,31 @@ struct ThreadScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
         .sheet(isPresented: $showJumpSheet) { jumpSheet }
+        .onAppear { vm.resumeReading() }
         .task {
-            if vm.mainPost == nil {
-                let progress = jumpToPostId == nil
-                    ? HistoryStore.shared.readProgress(for: mainPostId, onlyPo: onlyPo) : nil
-                let start = progress?.page ?? initialPage
-                let target = jumpToPostId ?? progress?.postId
+            if !initialLoadDone || vm.loadedPages.isEmpty {
+                let context = vm.contextID
+                let initialTarget = initialLoadDone ? nil : jumpToPostId
+                let progress = initialTarget == nil
+                    ? HistoryStore.shared.readProgress(for: mainPostId, onlyPo: vm.onlyPo) : nil
+                let start = progress?.page ?? (initialLoadDone ? 1 : initialPage)
+                let target = initialTarget ?? progress?.postId
+                vm.beginInitialRestoration()
+                initialLoadDone = false
+                didInitialJump = false
                 restoreTarget = target
-                vm.onlyPo = onlyPo
                 HistoryStore.shared.noteReading(mainPostId: mainPostId, page: start,
-                                                postId: target, onlyPo: onlyPo)
-                await vm.openPage(start)
-                if let jumpToPostId, jumpToPostId != mainPostId,
+                                                postId: target, onlyPo: vm.onlyPo)
+                await vm.openPage(start, anchorPostId: target)
+                guard context == vm.contextID else { return }
+                if let jumpToPostId = initialTarget, jumpToPostId != mainPostId,
                    !vm.replies.contains(where: { $0.id == jumpToPostId }),
                    let page = try? await XDAPI.shared.locateReply(jumpToPostId, in: mainPostId,
                                                                   cookie: CookieStore.shared.cookieValue) {
+                    guard context == vm.contextID else { return }
                     await vm.openPage(page, anchorPostId: jumpToPostId)
                 }
+                guard context == vm.contextID else { return }
                 initialLoadDone = true
             }
         }
@@ -373,7 +468,7 @@ struct ThreadScreen: View {
             Task { await vm.reloadLastPage() }
         }
         .onDisappear {
-            vm.saveReadProgress()
+            vm.stopReading()
         }
     }
 
@@ -389,12 +484,16 @@ struct ThreadScreen: View {
             Menu {
                 Button {
                     Task {
+                        // Mode switching replaces the initial scroll restoration.
+                        // Let reset() restore the new mode through pageAnchor instead.
+                        restoreTarget = nil
+                        didInitialJump = true
+                        initialLoadDone = true
                         await vm.reset(onlyPo: !vm.onlyPo)
                     }
                 } label: {
                     Label(vm.onlyPo ? "看全部回复" : "只看 Po", systemImage: "person.crop.circle")
                 }
-                .disabled(vm.isLoading || vm.isSwitchingMode)
 
                 Button {
                     showJumpSheet = true
@@ -448,12 +547,18 @@ struct ThreadScreen: View {
     }
 
     private func restoreScroll(_ proxy: ScrollViewProxy) {
-        guard !didInitialJump, let target = restoreTarget else { return }
+        guard initialLoadDone else { return }
+        guard !didInitialJump, let target = restoreTarget else {
+            vm.finishInitialRestoration()
+            return
+        }
         if vm.replies.contains(where: { $0.id == target }) {
             didInitialJump = true
             proxy.scrollTo(target, anchor: .top)
-        } else if initialLoadDone {
+            vm.finishInitialRestoration(at: target)
+        } else {
             didInitialJump = true
+            vm.finishInitialRestoration()
         }
     }
 

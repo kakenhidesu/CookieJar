@@ -94,7 +94,8 @@ final class HistoryStore: ObservableObject {
                                   replyCount: post.replyCount,
                                   image: post.image,
                                   imageExtension: post.imageExtension,
-                                  lastPage: onlyPo ? (normalProgress?.page ?? previous?.lastPage ?? 1) : page,
+                                  // Fetching a page does not mean the reader reached it.
+                                  lastPage: normalProgress?.page ?? previous?.lastPage ?? (onlyPo ? 1 : page),
                                   lastPostId: normalProgress != nil ? normalProgress?.postId : previous?.lastPostId,
                                   browsedAt: Date())
         browsing.removeAll { $0.id == post.id }

@@ -10,10 +10,12 @@ final class ThreadListViewModel: ObservableObject {
     @Published var reachedEnd = false
 
     private(set) var page = 1
-    var forumId: Int = -1
-    var isTimeline: Bool = true
+    private(set) var forumId: Int = -1
+    private(set) var isTimeline: Bool = true
     private var loadedIds = Set<Int>()
     private var inflight: Task<Void, Never>?
+    private var contextID = UUID()
+    private var requestID: UUID?
 
     var maxPage: Int {
         if isTimeline { return ForumStore.shared.timeline(id: forumId)?.maxPage ?? 20 }
@@ -22,6 +24,15 @@ final class ThreadListViewModel: ObservableObject {
 
     func configure(forumId: Int, isTimeline: Bool) async {
         guard self.forumId != forumId || self.isTimeline != isTimeline || items.isEmpty else { return }
+        // Invalidate before cancelling: a transport may still deliver its old response.
+        contextID = UUID()
+        requestID = nil
+        inflight?.cancel()
+        inflight = nil
+        isLoading = false
+        isRefreshing = false
+        showRefreshBanner = false
+        error = nil
         self.forumId = forumId
         self.isTimeline = isTimeline
         items = []
@@ -33,12 +44,15 @@ final class ThreadListViewModel: ObservableObject {
 
     func refresh(showBanner: Bool = false) async {
         Task { await CookieStore.shared.syncDisplayIds(force: true) }
+        let context = contextID
         await inflight?.value
+        guard context == contextID else { return }
         isRefreshing = true
         showRefreshBanner = showBanner
         page = 1
         reachedEnd = false
         await load(reset: true)
+        guard context == contextID else { return }
         isRefreshing = false
         showRefreshBanner = false
     }
@@ -50,7 +64,9 @@ final class ThreadListViewModel: ObservableObject {
     }
 
     func retry() async {
+        let context = contextID
         await inflight?.value
+        guard context == contextID else { return }
         if items.isEmpty {
             page = 1
             reachedEnd = false
@@ -63,24 +79,43 @@ final class ThreadListViewModel: ObservableObject {
 
     func load(reset: Bool) async {
         guard !isLoading else { return }
-        let task = Task { @MainActor in await self.performLoad(reset: reset) }
+        let request = UUID()
+        let forum = forumId
+        let timeline = isTimeline
+        let requestedPage = page
+        let pageLimit = maxPage
+        let cookie = CookieStore.shared.cookieValue
+        requestID = request
+        // Claim the loading slot before scheduling the task on the main actor.
+        isLoading = true
+        let task = Task { @MainActor in
+            await self.performLoad(reset: reset, request: request, forumId: forum,
+                                   isTimeline: timeline, page: requestedPage, maxPage: pageLimit, cookie: cookie)
+        }
         inflight = task
         await task.value
-        inflight = nil
     }
 
-    private func performLoad(reset: Bool) async {
-        isLoading = true
-        defer { isLoading = false }
+    private func performLoad(reset: Bool, request: UUID, forumId: Int, isTimeline: Bool,
+                             page: Int, maxPage: Int, cookie: String?) async {
+        guard requestID == request, !Task.isCancelled else { return }
+        defer {
+            if requestID == request {
+                inflight = nil
+                requestID = nil
+                isLoading = false
+            }
+        }
         LaunchLog.mark("列表请求 id=\(forumId) timeline=\(isTimeline) page=\(page)")
         do {
-            let cookie = CookieStore.shared.cookieValue
             let result: [ForumThread]
             if isTimeline {
                 result = try await XDAPI.shared.timelineThreads(timelineId: forumId, page: page, cookie: cookie)
             } else {
                 result = try await XDAPI.shared.forumThreads(forumId: forumId, page: page, cookie: cookie)
             }
+            guard requestID == request, self.forumId == forumId,
+                  self.isTimeline == isTimeline, !Task.isCancelled else { return }
             if reset {
                 items = []
                 loadedIds = []
@@ -99,8 +134,10 @@ final class ThreadListViewModel: ObservableObject {
             error = nil
             LaunchLog.mark("列表完成 \(fresh.count) 条")
         } catch {
+            guard requestID == request, self.forumId == forumId,
+                  self.isTimeline == isTimeline, !Task.isCancelled else { return }
             self.error = error.localizedDescription
-            if page > 1 { page -= 1 }
+            if page > 1 { self.page = page - 1 }
             LaunchLog.mark("列表失败 \(error.localizedDescription)")
         }
     }
