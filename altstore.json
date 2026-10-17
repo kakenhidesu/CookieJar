@@ -16,11 +16,11 @@
       "versions": [
         {
           "version": "1.1",
-          "buildVersion": "9",
-          "date": "2026-10-01",
-          "localizedDescription": "注意：自 beta1.1 起支持的最低系统版本为 iOS 16.4\n\n1. 修复普通浏览与只看 Po 的阅读进度互相覆盖的问题\n2. 修复在别的端发送的同一条回复在历史中出现两份的问题\n3. 优化阅读进度存储逻辑",
-          "downloadURL": "https://github.com/kakenhidesu/CookieJar/releases/download/beta1.1/CookieJar_b1.1_9.ipa",
-          "size": 1971487,
+          "buildVersion": "10",
+          "date": "2026-10-17",
+          "localizedDescription": "注意：自 beta1.1 起支持的最低系统版本为 iOS 16.4\n\n1. 修复恢复阅读位置时切换“只看 Po”导致空白的问题\n2. 修复弱网下打开串恢复阅读记录失败导致阅读进度丢失的问题\n3. 修复切换版块时旧请求覆盖新列表的问题",
+          "downloadURL": "https://github.com/kakenhidesu/CookieJar/releases/download/beta1.1/CookieJar_b1.1_10.ipa",
+          "size": 1977927,
           "minOSVersion": "16.4"
         }
       ]

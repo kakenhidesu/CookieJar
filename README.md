@@ -8,7 +8,7 @@
 
 
 
-# CookieJar — 基于 SwiftUI 的第三方 X 岛客户端
+# CookieJar
 
 一个基于 SwiftUI 的第三方 X 岛客户端
 
@@ -52,6 +52,15 @@ https://raw.githubusercontent.com/kakenhidesu/CookieJar/main/altstore.json
 ### TrollStore
 
 到 [Releases](https://github.com/kakenhidesu/CookieJar/releases) 下载 `.ipa`，用 TrollStore 打开安装
+
+### LiveContainer
+
+CookieJar 需要 iOS / iPadOS 16.4 或更高版本。
+
+1. 按照 [LiveContainer 官方安装指南](https://livecontainer.github.io/docs/installation) 安装并完成配置，包括 JIT-less 签名配置与诊断。
+2. 到 [Releases](https://github.com/kakenhidesu/CookieJar/releases) 下载最新版本的 `.ipa`，保存到「文件」App。
+3. 打开 LiveContainer，点击右上角的「+」，选择下载的 CookieJar `.ipa` 文件并等待导入完成。
+4. 在 LiveContainer 的应用列表中选择 CookieJar 启动。
 
 ## 启动
 
