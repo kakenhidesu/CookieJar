@@ -118,6 +118,15 @@ struct XDAPI {
         return ThreadPage(mainPost: mainPost, replies: replies, tip: tip)
     }
 
+    func replyCount(mainPostId: Int, cookie: String? = nil) async throws -> Int {
+        let page = try await thread(mainPostId: mainPostId, page: 1, onlyPo: false, cookie: cookie)
+        guard page.mainPost.id == mainPostId,
+              let count = page.mainPost.replyCount, count >= 0 else {
+            throw XDError.decode("串详情未返回有效回复数")
+        }
+        return count
+    }
+
     func locateReply(_ replyId: Int, in mainPostId: Int, cookie: String? = nil) async throws -> Int? {
         let first = try await thread(mainPostId: mainPostId, page: 1, cookie: cookie)
         if first.mainPost.id == replyId { return 1 }

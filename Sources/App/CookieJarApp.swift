@@ -43,9 +43,11 @@ struct CookieJarApp: App {
             LaunchLog.mark("scenePhase \(phase)（Tab \(app.tab)，内存 \(LaunchLog.footprintMB)MB）")
             if phase == .active {
                 Task { await CookieStore.shared.syncDisplayIds() }
+            } else {
+                // Persist the latest visible reply before the app can be suspended.
+                HistoryStore.shared.flush()
             }
             guard phase == .background else { return }
-            HistoryStore.shared.flush()
             Task {
                 await ImageCache.shared.dropMemory()
                 LaunchLog.mark("已释放图片内存，剩 \(LaunchLog.footprintMB)MB")

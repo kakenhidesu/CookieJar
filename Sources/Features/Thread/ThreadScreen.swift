@@ -5,6 +5,14 @@ struct ThreadAnchor: Equatable {
     var tick: Int
 }
 
+private struct ReplyFramesKey: PreferenceKey {
+    static var defaultValue: [Int: CGRect] = [:]
+
+    static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
 @MainActor
 final class ThreadViewModel: ObservableObject {
     @Published var mainPost: XDPost?
@@ -31,6 +39,11 @@ final class ThreadViewModel: ObservableObject {
     private var requestID: UUID?
     private var isReadingActive = true
     private var didFinishInitialRestoration = false
+    private enum FailedLoad {
+        case page(Int, reset: Bool, prepend: Bool, force: Bool)
+        case position(Int, postId: Int?)
+    }
+    private var failedLoad: FailedLoad?
 
     init(mainPostId: Int, onlyPo: Bool = false) {
         self.mainPostId = mainPostId
@@ -55,6 +68,7 @@ final class ThreadViewModel: ObservableObject {
         isSwitchingMode = true
         defer { if context == contextID { isSwitchingMode = false } }
         error = nil
+        failedLoad = nil
         tip = nil
         pageAnchor = nil
         isPositioning = false
@@ -163,13 +177,13 @@ final class ThreadViewModel: ObservableObject {
         isLoading = true
         let task = Task { @MainActor in
             await self.performLoad(page: page, reset: reset, prepend: prepend,
-                                   request: request, onlyPo: mode, cookie: cookie)
+                                   force: force, request: request, onlyPo: mode, cookie: cookie)
         }
         inflight = task
         await task.value
     }
 
-    private func performLoad(page: Int, reset: Bool, prepend: Bool,
+    private func performLoad(page: Int, reset: Bool, prepend: Bool, force: Bool,
                              request: UUID, onlyPo: Bool, cookie: String?) async {
         guard requestID == request, !Task.isCancelled else { return }
         defer {
@@ -215,6 +229,7 @@ final class ThreadViewModel: ObservableObject {
                 replies.append(contentsOf: fresh)
             }
             if !loadedPages.contains(page) { loadedPages.append(page); loadedPages.sort() }
+            failedLoad = nil
             error = nil
 
             if let mp = mainPost {
@@ -222,17 +237,17 @@ final class ThreadViewModel: ObservableObject {
             }
         } catch {
             guard requestID == request, self.onlyPo == onlyPo, !Task.isCancelled else { return }
+            failedLoad = .page(page, reset: reset, prepend: prepend, force: force)
             self.error = error.localizedDescription
         }
     }
 
-    func noteVisible(_ postId: Int) {
-        visibleIds.insert(postId)
-        updateReadingAnchor()
-    }
-
-    func noteHidden(_ postId: Int) {
-        visibleIds.remove(postId)
+    func updateVisibleReplies(_ frames: [Int: CGRect], in viewport: CGRect) {
+        guard isReadingActive, viewport.width > 0, viewport.height > 0 else { return }
+        // LazyVStack can retain offscreen rows; lifecycle callbacks are not visibility.
+        visibleIds = Set(frames.compactMap { id, frame in
+            frame.intersects(viewport) ? id : nil
+        })
         updateReadingAnchor()
     }
 
@@ -254,7 +269,8 @@ final class ThreadViewModel: ObservableObject {
     }
 
     func loadNextIfNeeded(current post: XDPost) async {
-        guard !isLoading, canLoadMore, replies.last?.id == post.id else { return }
+        guard !isLoading, !isPositioning, error == nil,
+              canLoadMore, replies.last?.id == post.id else { return }
         await load(page: currentLastPage + 1)
     }
 
@@ -265,6 +281,12 @@ final class ThreadViewModel: ObservableObject {
         isPositioning = true
         await load(page: target, reset: true)
         guard context == contextID else { return }
+        guard error == nil else {
+            // A failed jump must not prepend pages to the old list or lose its target.
+            failedLoad = .position(target, postId: anchorPostId)
+            isPositioning = false
+            return
+        }
         var anchorId = anchorPostId.flatMap { id in replies.contains(where: { $0.id == id }) ? id : nil }
         if anchorId == nil, target > 1 { anchorId = replies.first?.id }
         guard let anchor = anchorId else {
@@ -280,15 +302,17 @@ final class ThreadViewModel: ObservableObject {
     func page(of id: Int) -> Int? { replyPage[id] }
 
     func retryLoad() async {
-        let context = contextID
-        await inflight?.value
-        guard context == contextID else { return }
-        if replies.isEmpty {
-            await load(page: currentLastPage, reset: true)
-        } else if canLoadMore {
-            await load(page: currentLastPage + 1)
-        } else {
-            await reloadLastPage()
+        guard isReadingActive, !isLoading else { return }
+        guard let failedLoad else {
+            // The empty-state button also uses this action after a successful empty page.
+            if replies.isEmpty { await refreshCurrentPage() }
+            return
+        }
+        switch failedLoad {
+        case let .page(page, reset, prepend, force):
+            await load(page: page, reset: reset, prepend: prepend, force: force)
+        case let .position(page, postId):
+            await openPage(page, anchorPostId: postId)
         }
     }
 
@@ -327,6 +351,7 @@ struct ThreadScreen: View {
 
     @EnvironmentObject private var app: AppState
     @EnvironmentObject private var settings: SettingsStore
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var vm: ThreadViewModel
     @ObservedObject private var subscriptions = SubscriptionCache.shared
     @State private var showJumpSheet = false
@@ -356,71 +381,80 @@ struct ThreadScreen: View {
             ZStack(alignment: .bottomTrailing) {
                 XDTheme.background.ignoresSafeArea()
 
-                ScrollView {
-                    LazyVStack(spacing: XDTheme.cardSpacing) {
-                        if let main = vm.mainPost {
-                            mainPostCard(main)
-                                .id("main")
-                        }
-
-                        if let tip = vm.tip {
-                            PostBodyView(post: tip)
-                                .xdCard()
-                        }
-
-                        if vm.currentFirstPage > 1 {
-                            Button {
-                                Task { await vm.load(page: vm.currentFirstPage - 1, prepend: true) }
-                            } label: {
-                                Label(String(format: "加载上一页（第 %d 页）", vm.currentFirstPage - 1),
-                                      systemImage: "arrow.up")
-                                    .font(.system(size: 13))
+                GeometryReader { viewport in
+                    ScrollView {
+                        LazyVStack(spacing: XDTheme.cardSpacing) {
+                            if let main = vm.mainPost {
+                                mainPostCard(main)
+                                    .id("main")
                             }
-                            .buttonStyle(.bordered)
-                            .padding(.vertical, 4)
-                        }
 
-                        ForEach(vm.replies) { reply in
-                            replyCard(reply)
-                                .id(reply.id)
-                                .onAppear { vm.noteVisible(reply.id) }
-                                .onDisappear { vm.noteHidden(reply.id) }
-                                .task { await vm.loadNextIfNeeded(current: reply) }
-                        }
+                            if let tip = vm.tip {
+                                PostBodyView(post: tip)
+                                    .xdCard()
+                            }
 
-                        ListStatusView(isLoading: vm.isLoading,
-                                       error: vm.error,
-                                       isEmpty: vm.replies.isEmpty,
-                                       reachedEnd: !vm.canLoadMore,
-                                       emptyIcon: "bubble.left",
-                                       emptyTitle: "还没有回复",
-                                       retry: { Task { await vm.retryLoad() } },
-                                       refresh: { Task { await vm.refreshLastPage() } })
+                            if vm.currentFirstPage > 1 {
+                                Button {
+                                    Task { await vm.load(page: vm.currentFirstPage - 1, prepend: true) }
+                                } label: {
+                                    Label(String(format: "加载上一页（第 %d 页）", vm.currentFirstPage - 1),
+                                          systemImage: "arrow.up")
+                                        .font(.system(size: 13))
+                                }
+                                .buttonStyle(.bordered)
+                                .padding(.vertical, 4)
+                            }
+
+                            ForEach(vm.replies) { reply in
+                                replyCard(reply)
+                                    .id(reply.id)
+                                    .background(GeometryReader { geometry in
+                                        Color.clear.preference(key: ReplyFramesKey.self,
+                                            value: [reply.id: geometry.frame(in: .named("threadViewport"))])
+                                    })
+                                    .task(id: vm.isPositioning) { await vm.loadNextIfNeeded(current: reply) }
+                            }
+
+                            ListStatusView(isLoading: vm.isLoading,
+                                           error: vm.error,
+                                           isEmpty: vm.replies.isEmpty,
+                                           reachedEnd: !vm.canLoadMore,
+                                           emptyIcon: "bubble.left",
+                                           emptyTitle: "还没有回复",
+                                           retry: { Task { await vm.retryLoad() } },
+                                           refresh: { Task { await vm.refreshLastPage() } })
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                }
-                .opacity((restoreTarget == nil || didInitialJump) && !vm.isPositioning ? 1 : 0)
-                .animation(.easeIn(duration: 0.15), value: vm.isPositioning)
-                .animation(.easeIn(duration: 0.15), value: didInitialJump)
-                .refreshable { await vm.refreshCurrentPage() }
-                .onChange(of: initialLoadDone) { _ in restoreScroll(proxy) }
-                .onChange(of: vm.pageAnchor) { anchor in
-                    guard let anchor else { return }
-                    if restoreTarget == nil || didInitialJump {
-                        proxy.scrollTo(anchor.postId, anchor: .top)
+                    .coordinateSpace(name: "threadViewport")
+                    .onPreferenceChange(ReplyFramesKey.self) { frames in
+                        guard scenePhase == .active else { return }
+                        vm.updateVisibleReplies(frames, in: CGRect(origin: .zero, size: viewport.size))
                     }
-                    vm.finishPositioning(at: anchor.postId)
-                }
-                .onChange(of: vm.replies.count) { _ in
-                    guard initialLoadDone else { return }
-                    restoreScroll(proxy)
-                }
-                .onChange(of: app.threadJump) { req in
-                    guard let req, req.threadId == mainPostId,
-                          app.activeThreadId == mainPostId else { return }
-                    app.threadJump = nil
-                    Task { await performJump(req, proxy: proxy) }
+                    .opacity((restoreTarget == nil || didInitialJump) && !vm.isPositioning ? 1 : 0)
+                    .animation(.easeIn(duration: 0.15), value: vm.isPositioning)
+                    .animation(.easeIn(duration: 0.15), value: didInitialJump)
+                    .refreshable { await vm.refreshCurrentPage() }
+                    .onChange(of: initialLoadDone) { _ in restoreScroll(proxy) }
+                    .onChange(of: vm.pageAnchor) { anchor in
+                        guard let anchor else { return }
+                        if restoreTarget == nil || didInitialJump {
+                            proxy.scrollTo(anchor.postId, anchor: .top)
+                        }
+                        vm.finishPositioning(at: anchor.postId)
+                    }
+                    .onChange(of: vm.replies.count) { _ in
+                        guard initialLoadDone else { return }
+                        restoreScroll(proxy)
+                    }
+                    .onChange(of: app.threadJump) { req in
+                        guard let req, req.threadId == mainPostId,
+                              app.activeThreadId == mainPostId else { return }
+                        app.threadJump = nil
+                        Task { await performJump(req, proxy: proxy) }
+                    }
                 }
 
                 replyButton
@@ -453,7 +487,7 @@ struct ThreadScreen: View {
                                                 postId: target, onlyPo: vm.onlyPo)
                 await vm.openPage(start, anchorPostId: target)
                 guard context == vm.contextID else { return }
-                if let jumpToPostId = initialTarget, jumpToPostId != mainPostId,
+                if vm.error == nil, let jumpToPostId = initialTarget, jumpToPostId != mainPostId,
                    !vm.replies.contains(where: { $0.id == jumpToPostId }),
                    let page = try? await XDAPI.shared.locateReply(jumpToPostId, in: mainPostId,
                                                                   cookie: CookieStore.shared.cookieValue) {

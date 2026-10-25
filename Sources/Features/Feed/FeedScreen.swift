@@ -14,7 +14,7 @@ final class FeedViewModel: ObservableObject {
         await inflight?.value
         page = 1
         reachedEnd = false
-        await load(reset: true)
+        await load(reset: true, forceReplyCounts: true)
     }
 
     func loadMoreIfNeeded(current post: XDPost) async {
@@ -35,16 +35,18 @@ final class FeedViewModel: ObservableObject {
         }
     }
 
-    func load(reset: Bool) async {
+    func load(reset: Bool, forceReplyCounts: Bool = false) async {
         guard !isLoading else { return }
-        let task = Task { @MainActor in await self.performLoad(reset: reset) }
+        isLoading = true
+        let task = Task { @MainActor in
+            await self.performLoad(reset: reset, forceReplyCounts: forceReplyCounts)
+        }
         inflight = task
         await task.value
         inflight = nil
     }
 
-    private func performLoad(reset: Bool) async {
-        isLoading = true
+    private func performLoad(reset: Bool, forceReplyCounts: Bool) async {
         defer { isLoading = false }
         do {
             let result = try await FeedService.shared.feed(page: page)
@@ -53,6 +55,8 @@ final class FeedViewModel: ObservableObject {
             let fresh = result.filter { !ids.contains($0.id) && !blacklist.shouldHide($0) }
             fresh.forEach { ids.insert($0.id) }
             items.append(contentsOf: fresh)
+            FeedReplyCountStore.shared.request(fresh.map(\.id), cookie: CookieStore.shared.cookieValue,
+                                              force: forceReplyCounts)
             reachedEnd = result.isEmpty
             error = nil
         } catch {
@@ -77,11 +81,17 @@ struct FeedScreen: View {
     @EnvironmentObject private var app: AppState
     @EnvironmentObject private var settings: SettingsStore
     @StateObject private var vm = FeedViewModel()
+    @ObservedObject private var replyCounts = FeedReplyCountStore.shared
     @State private var query = ""
 
     private var visibleItems: [XDPost] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let matched = q.isEmpty ? vm.items : vm.items.filter { post in
+        let counted = vm.items.map { post -> XDPost in
+            var post = post
+            post.replyCount = replyCounts.entries[post.id]?.count
+            return post
+        }
+        let matched = q.isEmpty ? counted : counted.filter { post in
             post.title.localizedCaseInsensitiveContains(q)
                 || post.name.localizedCaseInsensitiveContains(q)
                 || post.userHash.localizedCaseInsensitiveContains(q)
@@ -116,7 +126,13 @@ struct FeedScreen: View {
                 } label: { Image(systemName: "arrow.clockwise") }
             }
         }
-        .task { if vm.items.isEmpty { await vm.load(reset: true) } }
+        .task {
+            if vm.items.isEmpty {
+                await vm.load(reset: true)
+            } else {
+                replyCounts.request(vm.items.map(\.id), cookie: CookieStore.shared.cookieValue)
+            }
+        }
         .onChange(of: app.refreshTick[.feed] ?? 0) { _ in
             Task { await vm.refresh() }
         }
@@ -138,7 +154,7 @@ struct FeedScreen: View {
                                          })
 
                             HStack(spacing: 10) {
-                                Label(String(post.replyCount ?? 0), systemImage: "bubble.left")
+                                replyCountLabel(for: post)
                                 Spacer()
                                 Text(verbatim: "No.\(post.id)")
                                     .font(.system(size: settings.captionFontSize, design: .monospaced))
@@ -151,6 +167,11 @@ struct FeedScreen: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
+                        if replyCounts.failedIDs.contains(post.id) {
+                            Button {
+                                retryReplyCount(post.id)
+                            } label: { Label("重试获取回复数", systemImage: "arrow.clockwise") }
+                        }
                         Button(role: .destructive) {
                             Task { await vm.unsubscribe(post) }
                         } label: { Label("取消订阅", systemImage: "bookmark.slash") }
@@ -176,5 +197,28 @@ struct FeedScreen: View {
             .padding(.vertical, 6)
         }
         .refreshable { await vm.refresh() }
+    }
+
+    @ViewBuilder
+    private func replyCountLabel(for post: XDPost) -> some View {
+        HStack(spacing: 5) {
+            Label(post.replyCount.map(String.init) ?? "—", systemImage: "bubble.left")
+            if replyCounts.loadingIDs.contains(post.id) {
+                ProgressView().controlSize(.mini)
+                    .accessibilityLabel("正在获取回复数")
+            } else if replyCounts.failedIDs.contains(post.id) {
+                Button {
+                    retryReplyCount(post.id)
+                } label: {
+                    Text(post.replyCount == nil ? "获取失败，重试" : "更新失败，重试")
+                        .font(.system(size: 11))
+                }
+                .buttonStyle(.borderless)
+            }
+        }
+    }
+
+    private func retryReplyCount(_ id: Int) {
+        replyCounts.request([id], cookie: CookieStore.shared.cookieValue, force: true)
     }
 }

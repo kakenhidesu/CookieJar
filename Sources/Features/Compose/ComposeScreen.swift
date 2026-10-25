@@ -96,12 +96,14 @@ struct ComposeScreen: View {
 
                     toolbarBar
                 }
+                .disabled(isSending)
             }
             .navigationTitle(navTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("关闭") { closeWithAutosave() }
+                        .disabled(isSending)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
@@ -114,12 +116,14 @@ struct ComposeScreen: View {
             }
             .sheet(isPresented: $showEmoticons) {
                 EmoticonPickerView { text in
+                    guard !isSending else { return }
                     content += text
                 }
                 .presentationDetents([.medium, .large])
             }
             .sheet(isPresented: $showDrafts) {
                 DraftPickerSheet { draft in
+                    guard !isSending else { return }
                     showDrafts = false
                     guard saveDraft(explicit: false) else { return }
                     apply(draft: draft)
@@ -128,15 +132,17 @@ struct ComposeScreen: View {
             }
             .fullScreenCover(isPresented: $showDoodle) {
                 DoodleScreen { result in
+                    guard !isSending else { return }
                     image = result
                     imageIsPNG = true
                 }
             }
             .onChange(of: photoItem) { item in
-                guard let item else { return }
+                guard let item, !isSending else { return }
                 Task {
                     if let data = try? await item.loadTransferable(type: Data.self),
                        let ui = UIImage(data: data) {
+                        guard !isSending, photoItem == item, !dismissHandled else { return }
                         image = ui
                         imageIsPNG = false
                     }
@@ -146,6 +152,7 @@ struct ComposeScreen: View {
         }
         .interactiveDismissDisabled(isSending)
         .background(SheetDismissGuard {
+            guard !isSending else { return false }
             guard settings.saveDraftAuto else { return true }
             let saved = saveDraft(explicit: false)
             if saved { dismissHandled = true }
@@ -397,12 +404,15 @@ struct ComposeScreen: View {
     }
 
     private func closeWithAutosave() {
+        guard !isSending else { return }
         if settings.saveDraftAuto, !saveDraft(explicit: false) { return }
         dismissHandled = true
         dismiss()
     }
 
+    @MainActor
     private func send() async {
+        guard !isSending else { return }
         guard let cookie = cookies.cookieValue else {
             Toast.shared.error("请先添加并选择饼干")
             return
@@ -418,6 +428,7 @@ struct ComposeScreen: View {
             return
         }
         let body = isReport ? "举报理由：\(reportReason)\n\(content)" : content
+        let sendingDraft = DraftStore.shared.drafts.first { $0.id == draftId }
 
         isSending = true
         defer { isSending = false }
@@ -477,8 +488,9 @@ struct ComposeScreen: View {
         }
 
         if outcome == .accepted {
-            if let draftId, let d = DraftStore.shared.drafts.first(where: { $0.id == draftId }) {
-                DraftStore.shared.remove(d)
+            // Only remove the captured draft if it has not been changed since sending.
+            if let sendingDraft, DraftStore.shared.drafts.contains(sendingDraft) {
+                DraftStore.shared.remove(sendingDraft)
             }
             Toast.shared.success("发送成功")
         } else {
