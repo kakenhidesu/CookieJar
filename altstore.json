@@ -16,11 +16,11 @@
       "versions": [
         {
           "version": "1.1",
-          "buildVersion": "10",
-          "date": "2026-10-17",
-          "localizedDescription": "注意：自 beta1.1 起支持的最低系统版本为 iOS 16.4\n\n1. 修复恢复阅读位置时切换“只看 Po”导致空白的问题\n2. 修复弱网下打开串恢复阅读记录失败导致阅读进度丢失的问题\n3. 修复切换版块时旧请求覆盖新列表的问题",
-          "downloadURL": "https://github.com/kakenhidesu/CookieJar/releases/download/beta1.1/CookieJar_b1.1_10.ipa",
-          "size": 1977927,
+          "buildVersion": "11",
+          "date": "2026-10-25",
+          "localizedDescription": "注意：自 beta1.1 起支持的最低系统版本为 iOS 16.4\n\n1. 修复了串内加载或跳页失败后，重试可能加载错误页面的问题\n2. 优化阅读位置记录，现在切换后台时能更及时地保存阅读进度，并且记录也更准确了！\n3. 优化草稿保存，修复了发送成功后误删已修改的草稿的问题\n4. 订阅页的串回复数修复好咯，顺便支持了按回复数排序",
+          "downloadURL": "https://github.com/kakenhidesu/CookieJar/releases/download/beta1.1/CookieJar_b1.1_11.ipa",
+          "size": 2021836,
           "minOSVersion": "16.4"
         }
       ]
