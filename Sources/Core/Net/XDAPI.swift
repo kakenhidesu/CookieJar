@@ -127,8 +127,8 @@ struct XDAPI {
         return count
     }
 
-    func locateReply(_ replyId: Int, in mainPostId: Int, cookie: String? = nil) async throws -> Int? {
-        let first = try await thread(mainPostId: mainPostId, page: 1, cookie: cookie)
+    func locateReply(_ replyId: Int, in mainPostId: Int, onlyPo: Bool = false, cookie: String? = nil) async throws -> Int? {
+        let first = try await thread(mainPostId: mainPostId, page: 1, onlyPo: onlyPo, cookie: cookie)
         if first.mainPost.id == replyId { return 1 }
         var lo = 1
         var hi = max(1, first.mainPost.maxPage)
@@ -138,7 +138,7 @@ struct XDAPI {
             if mid == 1 {
                 page = first
             } else {
-                page = try await thread(mainPostId: mainPostId, page: mid, cookie: cookie)
+                page = try await thread(mainPostId: mainPostId, page: mid, onlyPo: onlyPo, cookie: cookie)
             }
             let ids = page.replies.map(\.id).filter { $0 != 9_999_999 }
             if ids.contains(replyId) { return mid }

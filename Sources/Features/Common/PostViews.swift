@@ -395,7 +395,7 @@ struct ThreadCardView: View {
 
             if !item.recentReplies.isEmpty && !settings.compactCard {
                 VStack(alignment: .leading, spacing: 6) {
-                    ForEach(item.recentReplies.prefix(3)) { reply in
+                    ForEach(item.recentReplies.suffix(3)) { reply in
                         HStack(alignment: .top, spacing: 6) {
                             Rectangle()
                                 .fill(XDTheme.hairline)

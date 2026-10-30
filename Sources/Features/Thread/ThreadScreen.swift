@@ -55,7 +55,7 @@ final class ThreadViewModel: ObservableObject {
     var currentFirstPage: Int { loadedPages.min() ?? 1 }
     var canLoadMore: Bool { currentLastPage < maxPage }
 
-    func reset(onlyPo: Bool) async {
+    func reset(onlyPo: Bool, page: Int? = nil, anchorPostId: Int? = nil) async {
         guard isReadingActive else { return }
         saveReadProgress()
         // Cancellation is best effort; the request identity also rejects late responses.
@@ -73,16 +73,18 @@ final class ThreadViewModel: ObservableObject {
         pageAnchor = nil
         isPositioning = false
         self.onlyPo = onlyPo
-        let progress = HistoryStore.shared.readProgress(for: mainPostId, onlyPo: onlyPo)
+        let progress = page == nil ? HistoryStore.shared.readProgress(for: mainPostId, onlyPo: onlyPo) : nil
+        let targetPage = max(1, page ?? progress?.page ?? 1)
+        let targetPostId = page == nil ? progress?.postId : anchorPostId
         replies = []
         loadedPages = []
         loadedIds = []
         replyPage = [:]
         visibleIds = []
         lastVisibleId = nil
-        HistoryStore.shared.noteReading(mainPostId: mainPostId, page: progress?.page ?? 1,
-                                        postId: progress?.postId, onlyPo: onlyPo)
-        await openPage(progress?.page ?? 1, anchorPostId: progress?.postId)
+        HistoryStore.shared.noteReading(mainPostId: mainPostId, page: targetPage,
+                                        postId: targetPostId, onlyPo: onlyPo)
+        await openPage(targetPage, anchorPostId: targetPostId)
     }
 
     func saveReadProgress() {
@@ -287,6 +289,11 @@ final class ThreadViewModel: ObservableObject {
             isPositioning = false
             return
         }
+        if anchorPostId == mainPostId {
+            // The main post uses the view's "main" anchor, not a reply-page anchor.
+            isPositioning = false
+            return
+        }
         var anchorId = anchorPostId.flatMap { id in replies.contains(where: { $0.id == id }) ? id : nil }
         if anchorId == nil, target > 1 { anchorId = replies.first?.id }
         guard let anchor = anchorId else {
@@ -366,6 +373,7 @@ struct ThreadScreen: View {
     private struct ReturnAnchor {
         var page: Int
         var postId: Int
+        var onlyPo: Bool
     }
 
     init(mainPostId: Int, initialPage: Int = 1, onlyPo: Bool = false, jumpToPostId: Int? = nil) {
@@ -490,6 +498,7 @@ struct ThreadScreen: View {
                 if vm.error == nil, let jumpToPostId = initialTarget, jumpToPostId != mainPostId,
                    !vm.replies.contains(where: { $0.id == jumpToPostId }),
                    let page = try? await XDAPI.shared.locateReply(jumpToPostId, in: mainPostId,
+                                                                  onlyPo: vm.onlyPo,
                                                                   cookie: CookieStore.shared.cookieValue) {
                     guard context == vm.contextID else { return }
                     await vm.openPage(page, anchorPostId: jumpToPostId)
@@ -621,21 +630,30 @@ struct ThreadScreen: View {
         app.referenceOrigin = nil
         let originPage = vm.page(of: originId) ?? vm.currentFirstPage
         withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
-            returnAnchor = ReturnAnchor(page: originPage, postId: originId)
+            returnAnchor = ReturnAnchor(page: originPage, postId: originId, onlyPo: vm.onlyPo)
         }
-        await scrollTo(postId: req.postId, page: req.page, proxy: proxy)
+        // Reference lookup returns a page in the full thread. Loaded replies can
+        // still be reached in the current mode without using that page number.
+        let targetIsLoaded = req.postId == mainPostId || vm.replies.contains(where: { $0.id == req.postId })
+        await scrollTo(postId: req.postId, page: req.page,
+                       onlyPo: targetIsLoaded ? vm.onlyPo : false, proxy: proxy)
         Haptics.light()
     }
 
     private func returnToOrigin(_ proxy: ScrollViewProxy) async {
         guard let anchor = returnAnchor else { return }
         withAnimation(.easeOut(duration: 0.2)) { returnAnchor = nil }
-        await scrollTo(postId: anchor.postId, page: anchor.page, proxy: proxy)
+        await scrollTo(postId: anchor.postId, page: anchor.page, onlyPo: anchor.onlyPo, proxy: proxy)
         Haptics.light()
     }
 
-    private func scrollTo(postId: Int, page: Int, proxy: ScrollViewProxy) async {
-        if postId == mainPostId {
+    private func scrollTo(postId: Int, page: Int, onlyPo: Bool, proxy: ScrollViewProxy) async {
+        if vm.onlyPo != onlyPo {
+            await vm.reset(onlyPo: onlyPo, page: page, anchorPostId: postId)
+            if postId == mainPostId {
+                proxy.scrollTo("main", anchor: .top)
+            }
+        } else if postId == mainPostId {
             withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo("main", anchor: .top) }
         } else if vm.replies.contains(where: { $0.id == postId }) {
             withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo(postId, anchor: .top) }
