@@ -15,12 +15,12 @@
       "screenshotURLs": [],
       "versions": [
         {
-          "version": "1.1",
-          "buildVersion": "12",
-          "date": "2026-10-30",
-          "localizedDescription": "注意：自 beta1.1 起支持的最低系统版本为 iOS 16.4\n\n1. 修复了串外显示回复没有显示最新回复的问题\n2. 修复了只看po模式下引用跳转可能定位到错误页面的问题",
-          "downloadURL": "https://github.com/kakenhidesu/CookieJar/releases/download/beta1.1/CookieJar_b1.1_12.ipa",
-          "size": 2023046,
+          "version": "1.2",
+          "buildVersion": "0",
+          "date": "2026-11-09",
+          "localizedDescription": "注意：自 beta1.1 起支持的最低系统版本为 iOS 16.4\n\n1. 新增订阅串的未读回复提示，有未读回复时底部订阅图标会显示红点\n2. 支持订阅置顶、分组、仅看更新和有更新优先排序，也支持了批量和单独的移动分组、标记已读和取消订阅\n3. 支持按关键词搜索已加载到本地的主串和回复\n4. 新增串内查找\n5. 优化串内防剧透显示\n6. 新增串内图片总览，可定位\n7. 补齐了一些内置颜文字，修复了多行颜文字里面有的错误的排版\n8. 新增备份迁移",
+          "downloadURL": "https://github.com/kakenhidesu/CookieJar/releases/download/beta1.2/CookieJar_b1.2.ipa",
+          "size": 2478692,
           "minOSVersion": "16.4"
         }
       ]
