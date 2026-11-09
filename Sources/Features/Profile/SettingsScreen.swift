@@ -162,6 +162,8 @@ struct SettingsScreen: View {
         settings.imageQuality = 0.8
         settings.useHTMLFeed = false
         settings.feedSortRaw = FeedSort.default.rawValue
+        settings.feedOnlyUpdated = false
+        settings.feedUpdatedFirst = false
         settings.useBackupAPI = false
         settings.timeout = 20
         settings.applyToNetwork()

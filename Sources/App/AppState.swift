@@ -10,6 +10,7 @@ enum AppRoute: Hashable {
     case settings
     case forumManage
     case about
+    case backup
 }
 
 enum AppTab: Int, Hashable {

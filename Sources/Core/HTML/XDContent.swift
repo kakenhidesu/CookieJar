@@ -2,6 +2,11 @@ import SwiftUI
 
 enum XDContent {
 
+    struct HiddenSegmentAttribute: AttributedStringKey {
+        typealias Value = Int
+        static let name = "CookieJar.HiddenSegment"
+    }
+
     struct Result {
         var text: AttributedString
         var paragraphs: [AttributedString]
@@ -33,15 +38,18 @@ enum XDContent {
             .queryItems?.first(where: { $0.name == "id" })?.value.flatMap(Int.init)
     }
 
-    static func parse(_ html: String, revealHidden: Bool) -> Result {
-        let key = "\(revealHidden ? 1 : 0)|\(html.count)|\(html.hashValue)" as NSString
+    static func parse(_ html: String, revealHidden: Bool,
+                      revealedHiddenSegments: Set<Int> = []) -> Result {
+        let segments = revealedHiddenSegments.sorted().map { String($0) }.joined(separator: ",")
+        let key = "\(revealHidden ? 1 : 0)|\(segments)|\(html.count)|\(html.hashValue)" as NSString
         if let cached = cache.object(forKey: key) { return cached.value }
-        let result = render(html, revealHidden: revealHidden)
+        let result = render(html, revealHidden: revealHidden, revealedHiddenSegments: revealedHiddenSegments)
         cache.setObject(ResultBox(result), forKey: key)
         return result
     }
 
-    private static func render(_ html: String, revealHidden: Bool) -> Result {
+    private static func render(_ html: String, revealHidden: Bool,
+                               revealedHiddenSegments: Set<Int>) -> Result {
         let quoteColor = XDTheme.quote
         let linkColor = XDTheme.link
         let hiddenBackground = XDTheme.hiddenBackground
@@ -96,22 +104,28 @@ enum XDContent {
         }
 
         var processed: [Run] = []
-        var hiding = false
+        var hiddenSegment: Int?
+        var nextHiddenSegment = 0
         for run in runs {
             var text = run.text
             while let range = XDContent.firstHiddenTag(in: text) {
                 let isOpen = text[range] == "[h]"
                 let head = String(text[text.startIndex..<range.lowerBound])
                 if !head.isEmpty {
-                    var s = run.style; s.hidden = hiding
+                    var s = run.style; s.hiddenSegment = hiddenSegment
                     processed.append(Run(text: head, style: s))
                 }
-                hiding = isOpen
-                if isOpen { hasHidden = true }
+                if isOpen {
+                    hiddenSegment = nextHiddenSegment
+                    nextHiddenSegment += 1
+                    hasHidden = true
+                } else {
+                    hiddenSegment = nil
+                }
                 text = String(text[range.upperBound...])
             }
             if !text.isEmpty {
-                var s = run.style; s.hidden = hiding
+                var s = run.style; s.hiddenSegment = hiddenSegment
                 processed.append(Run(text: text, style: s))
             }
         }
@@ -149,12 +163,15 @@ enum XDContent {
                     attr.foregroundColor = quoteColor
                 }
 
-                if run.style.hidden && !revealHidden {
-                    attr.backgroundColor = hiddenBackground
-                    attr.foregroundColor = hiddenBackground
-                    attr.link = nil
-                } else if run.style.hidden {
-                    attr.backgroundColor = hiddenBackground.opacity(0.35)
+                if let segment = run.style.hiddenSegment {
+                    attr[HiddenSegmentAttribute.self] = segment
+                    if !revealHidden && !revealedHiddenSegments.contains(segment) {
+                        attr.backgroundColor = hiddenBackground
+                        attr.foregroundColor = hiddenBackground
+                        attr.link = nil
+                    } else {
+                        attr.backgroundColor = hiddenBackground.opacity(0.35)
+                    }
                 }
                 out.append(attr)
                 if piece.text == "\n" {
@@ -224,7 +241,8 @@ enum XDContent {
         var strike = false
         var color: Color?
         var isQuote = false
-        var hidden = false
+        var hiddenSegment: Int?
+        var hidden: Bool { hiddenSegment != nil }
         var link: URL?
     }
 
@@ -406,16 +424,28 @@ struct XDRichText: View {
     let paragraphs: [AttributedString]
     var font: Font
     var lineSpacing: CGFloat = 4
+    var hiddenTextFontSize: CGFloat = 16
+    var revealedHiddenSegments: Set<Int> = []
+    var onToggleHidden: ((Int) -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: lineSpacing) {
             ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, paragraph in
-                Text(paragraph.characters.isEmpty ? AttributedString(" ") : paragraph)
-                    .font(font)
-                    .lineSpacing(lineSpacing)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
+                if let onToggleHidden,
+                   paragraph.runs.contains(where: { $0[XDContent.HiddenSegmentAttribute.self] != nil }) {
+                    SelectableSpoilerText(text: paragraph, fontSize: hiddenTextFontSize,
+                                          lineSpacing: lineSpacing,
+                                          revealedHiddenSegments: revealedHiddenSegments,
+                                          onToggleHidden: onToggleHidden)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Text(paragraph.characters.isEmpty ? AttributedString(" ") : paragraph)
+                        .font(font)
+                        .lineSpacing(lineSpacing)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }

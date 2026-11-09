@@ -28,6 +28,45 @@ final class DraftStore: ObservableObject {
 
     private init() { drafts = store.load() ?? [] }
 
+    struct Backup: Codable {
+        var drafts: [Draft]
+        var images: [String: Data]
+    }
+
+    func backup() throws -> Backup {
+        var images: [String: Data] = [:]
+        for draft in drafts {
+            if let name = draft.imageFile {
+                guard Self.validImageName(name, for: draft.id) else { throw CocoaError(.fileReadCorruptFile) }
+                images[name] = try Data(contentsOf: Self.imageDir.appendingPathComponent(name))
+            }
+        }
+        return Backup(drafts: drafts, images: images)
+    }
+
+    static func validImageName(_ name: String, for id: UUID) -> Bool {
+        name == id.uuidString + ".png" || name == id.uuidString + ".jpg"
+    }
+
+    func restore(_ backup: Backup) throws {
+        for draft in backup.drafts {
+            if let name = draft.imageFile {
+                guard Self.validImageName(name, for: draft.id), let data = backup.images[name] else {
+                    throw CocoaError(.fileReadCorruptFile)
+                }
+                try data.write(to: Self.imageDir.appendingPathComponent(name), options: .atomic)
+            }
+        }
+        guard store.saveNowChecked(backup.drafts) else { throw CocoaError(.fileWriteUnknown) }
+        let retained = Set(backup.drafts.compactMap(\.imageFile))
+        for old in drafts where old.imageFile.map({ !retained.contains($0) }) ?? false {
+            if let name = old.imageFile, Self.validImageName(name, for: old.id) {
+                try? FileManager.default.removeItem(at: Self.imageDir.appendingPathComponent(name))
+            }
+        }
+        drafts = backup.drafts
+    }
+
     @discardableResult
     func save(_ draft: Draft) -> Bool {
         var d = draft

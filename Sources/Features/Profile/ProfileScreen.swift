@@ -71,6 +71,7 @@ struct ProfileScreen: View {
                 }
                 row("版块管理", icon: "square.grid.2x2", count: nil) { app.push(.forumManage) }
                 row("设置", icon: "gearshape", count: nil) { app.push(.settings) }
+                row("备份与迁移", icon: "externaldrive", count: nil) { app.push(.backup) }
                 row("关于", icon: "info.circle", count: nil) { app.push(.about) }
             }
         }
@@ -122,11 +123,6 @@ struct AboutScreen: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
                 .listRowBackground(Color.clear)
-            }
-
-            Section("说明") {
-                Text("CookieJar，一个基于 SwiftUI 的第三方 X 岛客户端")
-                    .font(.system(size: 14))
             }
 
             Section {

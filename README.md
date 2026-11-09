@@ -8,20 +8,9 @@
 
 
 
-# CookieJar
+# CookieJar — 基于 SwiftUI 的第三方 X 岛客户端
 
 一个基于 SwiftUI 的第三方 X 岛客户端
-
-## 功能
-
-- **浏览**：时间线 + 全部版块，无限滚动、下拉刷新、版块说明、版块排序/隐藏
-- **串**：分页加载（可往上加载上一页）、跳页、只看 Po、阅读进度记忆、引用 `>>No.` 点击弹窗
-- **发串/回复**：图片（相册 / 涂鸦板）、水印开关、颜文字面板（内置 + 自定义 + 最近使用）、草稿箱、发串后自动回填串号
-- **订阅**：服务器订阅（uuid 或网页版）、关键字搜索、自定义排序
-- **历史**：浏览记录（按天分组）、发串/回复记录
-- **饼干**：多饼干管理、二维码扫描导入、二维码导出、剪贴板导入、登录官方账号导出饼干
-- **黑名单**：屏蔽饼干 / 串 / 版块 / 关键词
-- **外观**：5 套主题色、深浅色、字号与行距调节、紧凑卡片模式
 
 ## 安装
 
@@ -58,7 +47,7 @@ https://raw.githubusercontent.com/kakenhidesu/CookieJar/main/altstore.json
 CookieJar 需要 iOS / iPadOS 16.4 或更高版本。
 
 1. 按照 [LiveContainer 官方安装指南](https://livecontainer.github.io/docs/installation) 安装并完成配置，包括 JIT-less 签名配置与诊断。
-2. 到 [Releases](https://github.com/kakenhidesu/CookieJar/releases) 下载最新版本的 `.ipa`，保存到「文件」App。
+2. 到 [CookieJar Releases](https://github.com/kakenhidesu/CookieJar/releases) 下载最新版本的 `.ipa`，保存到「文件」App。
 3. 打开 LiveContainer，点击右上角的「+」，选择下载的 CookieJar `.ipa` 文件并等待导入完成。
 4. 在 LiveContainer 的应用列表中选择 CookieJar 启动。
 
@@ -73,7 +62,7 @@ CookieJar 需要 iOS / iPadOS 16.4 或更高版本。
 
 ## 已知问题
 
-* 官方搜索接口 `Api/search` 不可用，未实现相关功能，仅有串号跳转功能
+* 官方搜索接口 `Api/search` 不可用，未实现相关功能，仅有串号跳转功能（看到了肥哥做的第三方搜索，我先放个todo在这
 * 本地数据保存在 App Support 目录，卸载后会清除；饼干存储于 Keychain
 
 ## 致谢

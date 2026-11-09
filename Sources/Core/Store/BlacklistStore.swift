@@ -4,7 +4,7 @@ import SwiftUI
 final class BlacklistStore: ObservableObject {
     static let shared = BlacklistStore()
 
-    struct Payload: Codable {
+    struct Payload: Codable, Equatable {
         var users: [String: String] = [:]
         var posts: [Int: String] = [:]
         var forums: Set<Int> = []
@@ -64,5 +64,10 @@ final class BlacklistStore: ObservableObject {
     func clearAll() {
         data = Payload()
         store.saveNow(data)
+    }
+
+    func restore(_ payload: Payload) throws {
+        guard store.saveNowChecked(payload) else { throw CocoaError(.fileWriteUnknown) }
+        data = payload
     }
 }

@@ -46,6 +46,7 @@ struct CookieJarApp: App {
             } else {
                 // Persist the latest visible reply before the app can be suspended.
                 HistoryStore.shared.flush()
+                FeedUnreadStore.shared.flush()
             }
             guard phase == .background else { return }
             Task {

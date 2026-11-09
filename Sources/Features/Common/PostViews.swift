@@ -7,16 +7,49 @@ struct PostBodyView: View {
     var lineLimit: Int?
     var showForum: Bool = false
     var showPostId: Bool = true
+    var inlineHiddenToggle: Bool = false
     var onTapImage: ((URL) -> Void)?
 
     @EnvironmentObject private var settings: SettingsStore
     @EnvironmentObject private var forums: ForumStore
     @ObservedObject private var cookies = CookieStore.shared
     @State private var revealHidden = false
+    @State private var hiddenRevealState: HiddenRevealState?
     @State private var showSageTip = false
 
+    private struct HiddenRevealState {
+        let postID: Int
+        let content: String
+        let segments: Set<Int>
+    }
+
+    private var revealedHiddenSegments: Set<Int> {
+        guard let state = hiddenRevealState, state.postID == post.id,
+              state.content == post.content else { return [] }
+        return state.segments
+    }
+
     private var parsed: XDContent.Result {
-        XDContent.parse(post.content, revealHidden: revealHidden || settings.autoRevealHidden)
+        XDContent.parse(post.content,
+                        revealHidden: settings.autoRevealHidden || (!inlineHiddenToggle && revealHidden),
+                        revealedHiddenSegments: inlineHiddenToggle ? revealedHiddenSegments : [])
+    }
+
+    private func toggleHiddenSegment(_ segment: Int) {
+        var segments = revealedHiddenSegments
+        if !segments.insert(segment).inserted { segments.remove(segment) }
+        hiddenRevealState = HiddenRevealState(postID: post.id, content: post.content, segments: segments)
+        Haptics.light()
+    }
+
+    private func richText(_ paragraphs: [AttributedString]) -> some View {
+        XDRichText(paragraphs: paragraphs,
+                   font: settings.contentFont,
+                   lineSpacing: settings.lineSpacing,
+                   hiddenTextFontSize: settings.contentFontSize,
+                   revealedHiddenSegments: revealedHiddenSegments,
+                   onToggleHidden: inlineHiddenToggle && !settings.autoRevealHidden ? toggleHiddenSegment : nil)
+            .foregroundStyle(XDTheme.text)
     }
 
     var body: some View {
@@ -33,20 +66,14 @@ struct PostBodyView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             headerStack
                             if !split.beside.isEmpty {
-                                XDRichText(paragraphs: split.beside,
-                                           font: settings.contentFont,
-                                           lineSpacing: settings.lineSpacing)
-                                    .foregroundStyle(XDTheme.text)
+                                richText(split.beside)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .zIndex(1)
                     if !split.below.isEmpty {
-                        XDRichText(paragraphs: split.below,
-                                   font: settings.contentFont,
-                                   lineSpacing: settings.lineSpacing)
-                            .foregroundStyle(XDTheme.text)
+                        richText(split.below)
                     }
                 } else {
                     let limit = lineLimit ?? 10
@@ -71,7 +98,7 @@ struct PostBodyView: View {
                 textStack(result)
             }
 
-            if result.hasHidden && !settings.autoRevealHidden {
+            if result.hasHidden && !settings.autoRevealHidden && !inlineHiddenToggle {
                 Button {
                     withAnimation { revealHidden.toggle() }
                     Haptics.light()
@@ -163,10 +190,7 @@ struct PostBodyView: View {
     @ViewBuilder
     private func content(_ result: XDContent.Result) -> some View {
         if lineLimit == nil {
-            XDRichText(paragraphs: result.paragraphs,
-                       font: settings.contentFont,
-                       lineSpacing: settings.lineSpacing)
-                .foregroundStyle(XDTheme.text)
+            richText(result.paragraphs)
         } else {
             Text(result.text)
                 .font(settings.contentFont)

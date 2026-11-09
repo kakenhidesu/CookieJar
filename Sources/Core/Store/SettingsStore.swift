@@ -61,6 +61,10 @@ final class SettingsStore: ObservableObject {
     @AppStorage("set.feedUUID") var feedUUID: String = ""
     @AppStorage("set.useHTMLFeed") var useHTMLFeed: Bool = false
     @AppStorage("set.feedSort") var feedSortRaw: String = FeedSort.default.rawValue
+    @AppStorage("set.feedOnlyUpdated") var feedOnlyUpdated = false
+    @AppStorage("set.feedUpdatedFirst") var feedUpdatedFirst = false
+
+    var feedContextID: String { useHTMLFeed ? "html" : "uuid:\(feedUUID)" }
 
     var feedSort: FeedSort {
         get { FeedSort(rawValue: feedSortRaw) ?? .default }

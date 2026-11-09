@@ -38,6 +38,8 @@ final class ThreadViewModel: ObservableObject {
     private(set) var contextID = UUID()
     private var requestID: UUID?
     private var isReadingActive = true
+    private var readingGeneration = HistoryStore.shared.restoreGeneration
+    private let feedReadingToken = UUID()
     private var didFinishInitialRestoration = false
     private enum FailedLoad {
         case page(Int, reset: Bool, prepend: Bool, force: Bool)
@@ -76,18 +78,14 @@ final class ThreadViewModel: ObservableObject {
         let progress = page == nil ? HistoryStore.shared.readProgress(for: mainPostId, onlyPo: onlyPo) : nil
         let targetPage = max(1, page ?? progress?.page ?? 1)
         let targetPostId = page == nil ? progress?.postId : anchorPostId
-        replies = []
-        loadedPages = []
-        loadedIds = []
-        replyPage = [:]
-        visibleIds = []
-        lastVisibleId = nil
+        clearLoadedReplies()
         HistoryStore.shared.noteReading(mainPostId: mainPostId, page: targetPage,
                                         postId: targetPostId, onlyPo: onlyPo)
         await openPage(targetPage, anchorPostId: targetPostId)
     }
 
     func saveReadProgress() {
+        guard readingGeneration == HistoryStore.shared.restoreGeneration else { return }
         // Loaded replies are not necessarily visible while restoring the scroll position.
         guard isReadingActive, didFinishInitialRestoration, !isPositioning,
               let candidate = lastVisibleId, let page = replyPage[candidate] else { return }
@@ -98,7 +96,24 @@ final class ThreadViewModel: ObservableObject {
     }
 
     func resumeReading() {
+        guard !HistoryStore.shared.isRestoring else { isReadingActive = false; return }
+        if readingGeneration != HistoryStore.shared.restoreGeneration {
+            readingGeneration = HistoryStore.shared.restoreGeneration
+            contextID = UUID()
+            requestID = nil
+            inflight?.cancel()
+            inflight = nil
+            isLoading = false
+            mainPost = nil
+            clearLoadedReplies()
+            pageAnchor = nil
+            error = nil
+            didFinishInitialRestoration = false
+        }
         isReadingActive = true
+        if mainPost != nil {
+            FeedUnreadStore.shared.beginReading(mainPostId, token: feedReadingToken)
+        }
     }
 
     func beginInitialRestoration() {
@@ -107,6 +122,7 @@ final class ThreadViewModel: ObservableObject {
 
     func stopReading() {
         saveReadProgress()
+        FeedUnreadStore.shared.endReading(mainPostId, token: feedReadingToken)
         isReadingActive = false
         contextID = UUID()
         requestID = nil
@@ -197,8 +213,14 @@ final class ThreadViewModel: ObservableObject {
         }
         do {
             let result = try await XDAPI.shared.thread(mainPostId: mainPostId, page: page, onlyPo: onlyPo, cookie: cookie)
-            guard requestID == request, self.onlyPo == onlyPo, !Task.isCancelled else { return }
+            guard requestID == request, self.onlyPo == onlyPo, !Task.isCancelled,
+                  !HistoryStore.shared.isRestoring,
+                  readingGeneration == HistoryStore.shared.restoreGeneration else { return }
             mainPost = result.mainPost
+            FeedUnreadStore.shared.beginReading(mainPostId, token: feedReadingToken)
+            if !onlyPo, let count = result.mainPost.replyCount {
+                FeedReplyCountStore.shared.recordReadCount(mainPostId, count: count)
+            }
             if result.tip != nil { tip = result.tip }
             HistoryStore.shared.recordObservedReplies(result.replies,
                                                       mainPostId: mainPostId,
@@ -206,20 +228,17 @@ final class ThreadViewModel: ObservableObject {
             let observedReplies = result.replies
             let observedForumId = result.mainPost.forumId
             let observedThreadId = mainPostId
+            let observedGeneration = readingGeneration
             Task { @MainActor in
                 await CookieStore.shared.syncDisplayIds()
+                guard observedGeneration == HistoryStore.shared.restoreGeneration else { return }
                 HistoryStore.shared.recordObservedReplies(observedReplies,
                                                           mainPostId: observedThreadId,
                                                           forumId: observedForumId)
             }
 
             if reset {
-                replies = []
-                loadedPages = []
-                loadedIds = []
-                replyPage = [:]
-                visibleIds = []
-                lastVisibleId = nil
+                clearLoadedReplies()
             }
             let blacklist = BlacklistStore.shared
             let fresh = result.replies.filter { !loadedIds.contains($0.id) && !blacklist.shouldHide($0) }
@@ -236,12 +255,24 @@ final class ThreadViewModel: ObservableObject {
 
             if let mp = mainPost {
                 HistoryStore.shared.recordBrowse(mp, page: page, onlyPo: onlyPo)
+                ReadingSearchStore.shared.record(main: mp,
+                                                 replies: result.replies.filter { !blacklist.shouldHide($0) },
+                                                 page: page, onlyPo: onlyPo)
             }
         } catch {
             guard requestID == request, self.onlyPo == onlyPo, !Task.isCancelled else { return }
             failedLoad = .page(page, reset: reset, prepend: prepend, force: force)
             self.error = error.localizedDescription
         }
+    }
+
+    private func clearLoadedReplies() {
+        replies = []
+        loadedPages = []
+        loadedIds = []
+        replyPage = [:]
+        visibleIds = []
+        lastVisibleId = nil
     }
 
     func updateVisibleReplies(_ frames: [Int: CGRect], in viewport: CGRect) {
@@ -259,6 +290,7 @@ final class ThreadViewModel: ObservableObject {
     }
 
     private func recordReadingAnchor(_ postId: Int) {
+        guard readingGeneration == HistoryStore.shared.restoreGeneration else { return }
         guard isReadingActive, didFinishInitialRestoration, !isPositioning,
               lastVisibleId != postId, let page = replyPage[postId] else { return }
         lastVisibleId = postId
@@ -308,6 +340,8 @@ final class ThreadViewModel: ObservableObject {
 
     func page(of id: Int) -> Int? { replyPage[id] }
 
+    func waitForCurrentLoad() async { await inflight?.value }
+
     func retryLoad() async {
         guard isReadingActive, !isLoading else { return }
         guard let failedLoad else {
@@ -348,6 +382,22 @@ final class ThreadViewModel: ObservableObject {
         files.append(contentsOf: replies.compactMap(\.imageFile))
         return files.map { XDURLs.shared.image($0) }
     }
+
+    var searchRows: [ReadingSearchStore.BackupRow] {
+        guard let mainPost else { return [] }
+        return ([mainPost] + replies.filter { $0.id > 0 && $0.kind != .tip }).map {
+            ReadingSearchStore.row($0, threadId: mainPostId, page: replyPage[$0.id] ?? 1,
+                                   onlyPo: onlyPo, forumId: mainPost.forumId, recordedAt: .distantPast)
+        }
+    }
+
+    var galleryItems: [ThreadImageItem] {
+        let posts = mainPost.map { [$0] } ?? []
+        return (posts + replies).compactMap { post in
+            guard let file = post.imageFile, !BlacklistStore.shared.shouldHide(post) else { return nil }
+            return ThreadImageItem(id: post.id, file: file, page: replyPage[post.id] ?? 1, onlyPo: onlyPo)
+        }
+    }
 }
 
 struct ThreadScreen: View {
@@ -362,6 +412,10 @@ struct ThreadScreen: View {
     @StateObject private var vm: ThreadViewModel
     @ObservedObject private var subscriptions = SubscriptionCache.shared
     @State private var showJumpSheet = false
+    @State private var showSearch = false
+    @State private var showGallery = false
+    @State private var galleryTarget: ThreadImageItem?
+    @State private var isToolNavigating = false
     @State private var jumpPageText = ""
     @State private var didInitialJump = false
     @State private var restoreTarget: Int?
@@ -398,7 +452,7 @@ struct ThreadScreen: View {
                             }
 
                             if let tip = vm.tip {
-                                PostBodyView(post: tip)
+                                PostBodyView(post: tip, inlineHiddenToggle: true)
                                     .xdCard()
                             }
 
@@ -473,6 +527,21 @@ struct ThreadScreen: View {
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 }
             }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if showSearch {
+                    ThreadSearchBar(threadId: mainPostId, loadedRows: vm.searchRows,
+                                    isPositioning: toolsBusy,
+                                    onSelect: { locateToolPost($0.postId, page: $0.page, onlyPo: $0.onlyPo, proxy: proxy) },
+                                    onClose: { showSearch = false })
+                }
+            }
+            .sheet(isPresented: $showGallery, onDismiss: {
+                guard let target = galleryTarget else { return }
+                galleryTarget = nil
+                locateToolPost(target.id, page: target.page, onlyPo: target.onlyPo, proxy: proxy)
+            }) {
+                ThreadImageGallery(threadId: mainPostId, items: vm.galleryItems) { galleryTarget = $0 }
+            }
         }
         .navigationTitle(vm.onlyPo ? "只看 Po" : String(format: "No.%d", mainPostId))
         .navigationBarTitleDisplayMode(.inline)
@@ -525,6 +594,14 @@ struct ThreadScreen: View {
             }
 
             Menu {
+                Button { showSearch = true } label: {
+                    Label("串内查找", systemImage: "magnifyingglass")
+                }
+                Button { showGallery = true } label: {
+                    Label("图片总览", systemImage: "square.grid.3x3")
+                }
+                .disabled(toolsBusy)
+                Divider()
                 Button {
                     Task {
                         // Mode switching replaces the initial scroll restoration.
@@ -608,6 +685,25 @@ struct ThreadScreen: View {
     private func jump(_ page: Int) {
         showJumpSheet = false
         Task { await vm.jump(to: page) }
+    }
+
+    private var toolsBusy: Bool {
+        isToolNavigating || vm.isLoading || vm.isPositioning || vm.isSwitchingMode || !initialLoadDone
+    }
+
+    private func locateToolPost(_ postId: Int, page: Int, onlyPo: Bool, proxy: ScrollViewProxy) {
+        guard !isToolNavigating, initialLoadDone else { return }
+        isToolNavigating = true
+        let context = vm.contextID
+        Task {
+            defer { isToolNavigating = false }
+            await vm.waitForCurrentLoad()
+            guard context == vm.contextID, app.activeThreadId == mainPostId else { return }
+            restoreTarget = nil
+            didInitialJump = true
+            let loaded = postId == mainPostId || vm.replies.contains { $0.id == postId }
+            await scrollTo(postId: postId, page: page, onlyPo: loaded ? vm.onlyPo : onlyPo, proxy: proxy)
+        }
     }
 
     private func refTapAction(from postId: Int) -> OpenURLAction {
@@ -699,7 +795,7 @@ struct ThreadScreen: View {
 
     private func mainPostCard(_ main: XDPost) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            PostBodyView(post: main, isPo: true, onTapImage: openImage)
+            PostBodyView(post: main, isPo: true, inlineHiddenToggle: true, onTapImage: openImage)
                 .zIndex(1)
             if let fid = main.forumId, fid > 0 {
                 XDBadge(text: ForumStore.shared.name(forId: fid), color: XDTheme.link)
@@ -715,6 +811,7 @@ struct ThreadScreen: View {
         PostBodyView(post: reply,
                      poHash: vm.mainPost?.userHash,
                      showForum: false,
+                     inlineHiddenToggle: true,
                      onTapImage: openImage)
             .environment(\.openURL, refTapAction(from: reply.id))
             .xdCard()
@@ -787,7 +884,7 @@ struct ReferenceSheet: View {
                                        title: "无法跳转",
                                        subtitle: "该引用不在当前串内（跨串引用或已被删除）")
                     } else if let post, !isLoading {
-                        PostBodyView(post: post, onTapImage: { url in
+                        PostBodyView(post: post, inlineHiddenToggle: true, onTapImage: { url in
                             imageViewer = ImageViewerPayload(images: [url], index: 0)
                         })
                         .xdCard()

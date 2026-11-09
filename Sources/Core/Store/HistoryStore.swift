@@ -13,6 +13,39 @@ final class HistoryStore: ObservableObject {
 
     typealias ReadProgress = ThreadReadProgress
 
+    struct Backup: Codable {
+        var browsing: [BrowseRecord]
+        var posts: [PostRecord]
+        var progress: [Int: ReadProgress]
+        var poProgress: [Int: ReadProgress]
+        var lastSession: LastReadSession?
+    }
+
+    var backup: Backup {
+        Backup(browsing: browsing, posts: posts, progress: progress,
+               poProgress: poProgress, lastSession: lastSession)
+    }
+
+    func restore(_ backup: Backup) throws {
+        try progressDisk.replace(backup.progress)
+        try poProgressDisk.replace(backup.poProgress)
+        guard browseStore.saveNowChecked(backup.browsing), postStore.saveNowChecked(backup.posts),
+              sessionStore.saveNowChecked(backup.lastSession.map { [$0] } ?? []) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        browsing = backup.browsing
+        posts = backup.posts
+        progress = backup.progress
+        poProgress = backup.poProgress
+        lastSession = backup.lastSession
+        browsingDirty = false
+        postsDirty = false
+        progressDirty = false
+        progressAppends = 0
+        regroupBrowsing()
+        rebuildMyPostIds()
+    }
+
     @Published private(set) var lastSession: LastReadSession?
 
     private let sessionStore = JSONStore<[LastReadSession]>(filename: "last_session.json")
@@ -23,6 +56,15 @@ final class HistoryStore: ObservableObject {
     private var progressAppends = 0
 
     private let browseLimit = 1000
+    private(set) var isRestoring = false
+    private(set) var restoreGeneration = UUID()
+
+    func beginRestore() {
+        isRestoring = true
+        restoreGeneration = UUID()
+    }
+
+    func finishRestore() { isRestoring = false }
 
     private var browsingDirty = false
     private var postsDirty = false
@@ -30,6 +72,7 @@ final class HistoryStore: ObservableObject {
 
     private init() {
         browsing = browseStore.load() ?? []
+        ReadingSearchStore.shared.retainThreads(Set(browsing.map(\.id)))
         posts = postStore.load() ?? []
         progress = progressDisk.load()
         poProgress = poProgressDisk.load()
@@ -52,6 +95,7 @@ final class HistoryStore: ObservableObject {
     }
 
     func noteReading(mainPostId: Int, page: Int, postId: Int?, onlyPo: Bool) {
+        guard !isRestoring else { return }
         if let old = lastSession, old.mainPostId == mainPostId, old.page == page,
            old.postId == postId, old.onlyPo == onlyPo {
             return
@@ -63,6 +107,7 @@ final class HistoryStore: ObservableObject {
     }
 
     func clearReading() {
+        guard !isRestoring else { return }
         guard let old = lastSession else { return }
         lastSession = nil
         sessionStore.saveNow([])
@@ -83,7 +128,7 @@ final class HistoryStore: ObservableObject {
     }
 
     func recordBrowse(_ post: XDPost, page: Int, onlyPo: Bool = false) {
-        guard SettingsStore.shared.recordBrowsing else { return }
+        guard !isRestoring, SettingsStore.shared.recordBrowsing else { return }
         let previous = browsing.first(where: { $0.id == post.id })
         let normalProgress = progress[post.id]
         let record = BrowseRecord(id: post.id,
@@ -100,17 +145,22 @@ final class HistoryStore: ObservableObject {
                                   browsedAt: Date())
         browsing.removeAll { $0.id == post.id }
         browsing.insert(record, at: 0)
-        if browsing.count > browseLimit { browsing = Array(browsing.prefix(browseLimit)) }
+        if browsing.count > browseLimit {
+            ReadingSearchStore.shared.remove(browsing.dropFirst(browseLimit).map(\.id))
+            browsing = Array(browsing.prefix(browseLimit))
+        }
         browsingDidChange()
     }
 
     func removeBrowse(id: Int) {
         browsing.removeAll { $0.id == id }
+        ReadingSearchStore.shared.remove([id])
         browsingDidChange()
     }
 
     func clearBrowsing() {
         browsing = []
+        ReadingSearchStore.shared.clear()
         regroupBrowsing()
         browseStore.saveNow(browsing)
     }
@@ -135,6 +185,7 @@ final class HistoryStore: ObservableObject {
     }
 
     func recordObservedReplies(_ replies: [XDPost], mainPostId: Int, forumId: Int?) {
+        guard !isRestoring else { return }
         let cookies = CookieStore.shared
         let observed = replies.compactMap { post -> PostRecord? in
             guard post.id > 0,
@@ -184,7 +235,7 @@ final class HistoryStore: ObservableObject {
     }
 
     func saveProgress(mainPostId: Int, page: Int, postId: Int?, onlyPo: Bool) {
-        guard SettingsStore.shared.restoreReadProgress else { return }
+        guard !isRestoring, SettingsStore.shared.restoreReadProgress else { return }
         let record = ReadProgress(page: page, postId: postId, updatedAt: Date())
         if onlyPo {
             poProgress[mainPostId] = record
@@ -224,6 +275,8 @@ final class HistoryStore: ObservableObject {
     func flush() {
         let bg = UIApplication.shared.beginBackgroundTask(expirationHandler: nil)
         let group = DispatchGroup()
+        group.enter()
+        ReadingSearchStore.shared.flush { group.leave() }
         if browsingDirty {
             browsingDirty = false
             group.enter()

@@ -89,4 +89,13 @@ final class ProgressDiskStore {
     func clear() {
         compact([:])
     }
+
+    func replace(_ entries: [Int: ThreadReadProgress]) throws {
+        try queue.sync {
+            let data = try Self.makeEncoder().encode(Snapshot(version: 1, entries: entries))
+            try data.write(to: snapshotURL, options: .atomic)
+            try data.write(to: backupURL, options: .atomic)
+            try Data().write(to: journalURL, options: .atomic)
+        }
+    }
 }

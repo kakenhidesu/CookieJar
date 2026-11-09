@@ -11,8 +11,9 @@ settings:
     # 只接受 4 / 4.2 / 5 / 6，写具体小版本号会被拒绝
     SWIFT_VERSION: "5.0"
     IPHONEOS_DEPLOYMENT_TARGET: "16.4"
-    MARKETING_VERSION: "1.1"
-    CURRENT_PROJECT_VERSION: "12"
+    # beta1.2_rev0 — rev0 is hidden on the About screen.
+    MARKETING_VERSION: "1.2"
+    CURRENT_PROJECT_VERSION: "0"
     ENABLE_BITCODE: NO
     CODE_SIGN_IDENTITY: ""
     CODE_SIGNING_REQUIRED: NO
@@ -26,6 +27,8 @@ targets:
   CookieJar:
     type: application
     platform: iOS
+    dependencies:
+      - sdk: libsqlite3.tbd
     sources:
       - path: Sources
       - path: Resources/Assets.xcassets

@@ -1,5 +1,7 @@
 import SwiftUI
 import Photos
+import ImageIO
+import UniformTypeIdentifiers
 
 @MainActor
 enum ImageOrigin {
@@ -14,6 +16,10 @@ struct ImageViewerScreen: View {
     @State private var showControls = true
     @State private var dimOpacity: Double = 1
     @State private var isDraggingDown = false
+    @State private var isPreparingImage = false
+    @State private var transferTask: Task<Void, Never>?
+    @State private var shareItem: SharedImage?
+    @State private var shareDirectory: URL?
 
     init(payload: ImageViewerPayload) {
         self.payload = payload
@@ -57,6 +63,14 @@ struct ImageViewerScreen: View {
                             .background(Capsule().fill(.black.opacity(0.45)))
                         Spacer()
                         Menu {
+                            Button { prepareImage(sharing: true) } label: {
+                                Label("分享图片", systemImage: "square.and.arrow.up")
+                            }
+                            .disabled(isPreparingImage)
+                            Button { prepareImage(sharing: false) } label: {
+                                Label("复制图片", systemImage: "doc.on.doc")
+                            }
+                            .disabled(isPreparingImage)
                             Button {
                                 Task { await save() }
                             } label: { Label("保存到相册", systemImage: "square.and.arrow.down") }
@@ -65,8 +79,10 @@ struct ImageViewerScreen: View {
                                                  message: "已复制图片链接")
                             } label: { Label("复制链接", systemImage: "link") }
                         } label: {
-                            Image(systemName: "ellipsis")
-                                .font(.system(size: 16, weight: .semibold))
+                            Group {
+                                if isPreparingImage { ProgressView().tint(.white) }
+                                else { Image(systemName: "ellipsis").font(.system(size: 16, weight: .semibold)) }
+                            }
                                 .padding(10)
                                 .background(Circle().fill(.black.opacity(0.45)))
                         }
@@ -83,6 +99,58 @@ struct ImageViewerScreen: View {
         }
         .statusBarHidden(!showControls)
         .presentationBackground(.clear)
+        .sheet(item: $shareItem, onDismiss: removeSharedFile) { item in
+            ImageShareSheet(url: item.url)
+        }
+        .onDisappear {
+            transferTask?.cancel()
+            if shareItem == nil { removeSharedFile() }
+        }
+    }
+
+    private func prepareImage(sharing: Bool) {
+        guard !isPreparingImage, let url = payload.images[safe: index] else { return }
+        isPreparingImage = true
+        transferTask = Task { @MainActor in
+            defer { isPreparingImage = false; transferTask = nil }
+            guard let data = await ImageCache.shared.rawData(for: url) else {
+                if !Task.isCancelled { Toast.shared.error("图片加载失败") }
+                return
+            }
+            guard !Task.isCancelled else { return }
+            guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  let type = CGImageSourceGetType(source) else {
+                Toast.shared.error("无法读取图片格式")
+                return
+            }
+            let identifier = type as String
+            if !sharing {
+                UIPasteboard.general.setData(data, forPasteboardType: identifier)
+                Toast.shared.success("已复制图片")
+                return
+            }
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("CookieJar-Share-" + UUID().uuidString, isDirectory: true)
+            let file = directory.appendingPathComponent("image")
+                .appendingPathExtension(UTType(identifier)?.preferredFilenameExtension ?? "img")
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                try data.write(to: file, options: .atomic)
+                removeSharedFile()
+                shareDirectory = directory
+                shareItem = SharedImage(url: file)
+            } catch {
+                try? FileManager.default.removeItem(at: directory)
+                Toast.shared.error("准备分享失败")
+            }
+        }
+    }
+
+    private func removeSharedFile() {
+        if let directory = shareDirectory {
+            try? FileManager.default.removeItem(at: directory)
+        }
+        shareDirectory = nil
     }
 
     private func closeNow() {
@@ -113,6 +181,21 @@ struct ImageViewerScreen: View {
             Toast.shared.error("保存失败")
         }
     }
+}
+
+private struct SharedImage: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+private struct ImageShareSheet: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 
 struct ZoomableImage: View {

@@ -24,7 +24,9 @@ struct ComposeScreen: View {
     @State private var dismissHandled = false
     @State private var showDrafts = false
     @State private var forumId: Int?
-    @FocusState private var contentFocused: Bool
+    @State private var contentFocused = false
+    @State private var contentSelection = NSRange(location: 0, length: 0)
+    @StateObject private var editorHandle = ComposeEditorHandle()
 
     @State private var reportReason = ""
     @State private var showCustomReason = false
@@ -71,10 +73,9 @@ struct ComposeScreen: View {
                             .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(XDTheme.card))
 
                             ZStack(alignment: .topLeading) {
-                                TextEditor(text: $content)
-                                    .focused($contentFocused)
-                                    .font(settings.contentFont)
-                                    .scrollContentBackground(.hidden)
+                                ComposeTextEditor(text: $content, selection: $contentSelection,
+                                                  focused: $contentFocused, fontSize: settings.contentFontSize,
+                                                  tint: settings.accent.color, handle: editorHandle)
                                     .frame(minHeight: 220)
                                     .padding(8)
                                 if content.isEmpty {
@@ -114,10 +115,10 @@ struct ComposeScreen: View {
                     .disabled(isSending || (content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && image == nil))
                 }
             }
-            .sheet(isPresented: $showEmoticons) {
+            .sheet(isPresented: $showEmoticons, onDismiss: { contentFocused = true }) {
                 EmoticonPickerView { text in
                     guard !isSending else { return }
-                    content += text
+                    insertContent(text)
                 }
                 .presentationDetents([.medium, .large])
             }
@@ -338,12 +339,14 @@ struct ComposeScreen: View {
             forumId = ReportInfo.dutyRoomForumId
             content = ">>No.\(postId)\n"
         }
+        contentSelection = NSRange(location: (content as NSString).length, length: 0)
     }
 
     private func apply(draft: Draft) {
         title = draft.title
         name = draft.name
         content = draft.content
+        contentSelection = NSRange(location: (content as NSString).length, length: 0)
         draftId = draft.id
         if let mid = draft.replyTo {
             restoredTarget = .reply(mainPostId: mid, quote: nil)
@@ -365,7 +368,32 @@ struct ComposeScreen: View {
     }
 
     private func insertHiddenTag() {
-        content += "[h][/h]"
+        finishComposition()
+        let range = validContentSelection
+        let selected = (content as NSString).substring(with: range)
+        insertContent("[h]" + selected + "[/h]")
+        contentSelection = NSRange(location: range.location + 3, length: range.length)
+        contentFocused = true
+    }
+
+    private var validContentSelection: NSRange {
+        let count = (content as NSString).length
+        let start = min(contentSelection.location, count)
+        return NSRange(location: start, length: min(contentSelection.length, count - start))
+    }
+
+    private func insertContent(_ text: String) {
+        finishComposition()
+        let range = validContentSelection
+        content = (content as NSString).replacingCharacters(in: range, with: text)
+        contentSelection = NSRange(location: range.location + (text as NSString).length, length: 0)
+    }
+
+    private func finishComposition() {
+        if let committed = editorHandle.finishComposition() {
+            content = committed.text
+            contentSelection = committed.selection
+        }
     }
 
     @discardableResult
@@ -505,10 +533,13 @@ struct EmoticonPickerView: View {
     var onPick: (String) -> Void
 
     @ObservedObject private var store = EmoticonStore.shared
-    @Environment(\.dismiss) private var dismiss
-    @State private var showAdd = false
-    @State private var newName = ""
-    @State private var newText = ""
+    @State private var editor: EditorRequest?
+    @State private var preview: Emoticon?
+
+    private struct EditorRequest: Identifiable {
+        let id = UUID()
+        let original: Emoticon?
+    }
 
     private let columns = [GridItem(.adaptive(minimum: 110), spacing: 8)]
 
@@ -516,6 +547,9 @@ struct EmoticonPickerView: View {
         NavigationStack {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 14, pinnedViews: [.sectionHeaders]) {
+                    if !store.favorites.isEmpty {
+                        section("收藏", store.favorites)
+                    }
                     if !store.recent.isEmpty {
                         section("最近使用", store.recent)
                     }
@@ -535,17 +569,19 @@ struct EmoticonPickerView: View {
                         .font(.system(size: 13))
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button { showAdd = true } label: { Image(systemName: "plus") }
+                    Button { editor = EditorRequest(original: nil) } label: { Image(systemName: "plus") }
+                        .accessibilityLabel("添加颜文字")
                 }
             }
-            .alert("添加颜文字", isPresented: $showAdd) {
-                TextField("显示名称", text: $newName)
-                TextField("内容", text: $newText)
-                Button("添加") {
-                    store.addCustom(name: newName, text: newText)
-                    newName = ""; newText = ""
+            .sheet(item: $editor) { request in
+                EmoticonEditorScreen(original: request.original)
+            }
+            .sheet(item: $preview) { item in
+                EmoticonPreviewScreen(item: item) {
+                    onPick(item.text)
+                    store.markUsed(item)
+                    preview = nil
                 }
-                Button("取消", role: .cancel) {}
             }
         }
     }
@@ -569,7 +605,15 @@ struct EmoticonPickerView: View {
                             .foregroundStyle(XDTheme.text)
                     }
                     .contextMenu {
+                        Button { store.toggleFavorite(e) } label: {
+                            Label(store.isFavorite(e) ? "取消收藏" : "收藏",
+                                  systemImage: store.isFavorite(e) ? "star.slash" : "star")
+                        }
+                        Button { preview = e } label: { Label("预览", systemImage: "eye") }
                         if e.group == .custom {
+                            Button { editor = EditorRequest(original: e) } label: {
+                                Label("编辑", systemImage: "pencil")
+                            }
                             Button(role: .destructive) { store.removeCustom(e) } label: {
                                 Label("删除", systemImage: "trash")
                             }
